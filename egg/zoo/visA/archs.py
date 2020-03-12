@@ -30,17 +30,26 @@ class Receiver(nn.Module):
     def __init__(self, output_size, n_hidden):
         super(Receiver, self).__init__()
         self.output = nn.Linear(n_hidden, output_size)
+        self.sm = nn.Softmax(dim=-1)
 
     def forward(self, x, _input):
-        return self.output(x)
+        return self.sm(self.output(x))
 
 
 class Sender(nn.Module):
-    def __init__(self, n_hidden, n_features):
+    def __init__(self, n_hidden, n_features, activation="tanh"):
         super(Sender, self).__init__()
         self.fc1 = nn.Linear(n_features, n_hidden)
+        if activation == "tanh":
+            self.activation = nn.Tanh()
+        elif activation == "relu":
+            self.activation = nn.ReLu()
+        elif activation == "leaky":
+            self.activation = nn.LeakyReLU()
+        else:
+            raise ValueError("Sender activation func.: [tanh|relu|leaky] supported at this moment")
 
     def forward(self, x):
         x = self.fc1(x)
-        return x
+        return self.activation(x)
 
