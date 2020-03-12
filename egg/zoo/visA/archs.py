@@ -12,7 +12,7 @@ class ReinforceReceiver(nn.Module):
         super(ReinforceReceiver, self).__init__()
         self.output = nn.Linear(n_hidden, output_size)
 
-    def forward(self, x, _input):
+    def forward(self, x, receiver_input=None):
         logits = self.output(x).log_softmax(dim=1)
         distr = Categorical(logits=logits)
         entropy = distr.entropy()
@@ -27,13 +27,27 @@ class ReinforceReceiver(nn.Module):
 
 
 class Receiver(nn.Module):
-    def __init__(self, output_size, n_hidden):
+    def __init__(self, n_data, n_hidden, method="add"):
         super(Receiver, self).__init__()
-        self.output = nn.Linear(n_hidden, output_size)
+        self.n_hidden = n_hidden
+        self.method = method
+        if method == "add":
+            self.score = nn.Linear(n_hidden + n_data, 1)
+        elif method == "mul":
+            self.score = nn.Linear(n_hidden, n_data, bias=False)
         self.sm = nn.Softmax(dim=-1)
 
-    def forward(self, x, _input):
-        return self.sm(self.output(x))
+    def forward(self, x, receiver_input):
+        '''
+        x: hidden state of current step (of sender's message), [B, h]
+        receiver_input: input data points (one real label and other distractors), [B, data_size, n_data]
+        '''
+        _, num_dp, _ = receiver_input.shape
+        if self.method == "add":
+            scores = self.score(torch.cat((x.unsqueeze(1).repeat(1,num_dp, 1), receiver_input), 1)).squeeze(2)  # Additive attention: (B, s, h+d) --> (B, s, 1)
+        elif self.method == "mul":
+            scores = torch.bmm(self.score(x.unsqueeze(1)), receiver_input.transpose(1,2)).squeeze(1)   # General attention: (B, 1, d) * (B, d, s) --> (B, 1, s)
+        return self.sm(scores)
 
 
 class Sender(nn.Module):
