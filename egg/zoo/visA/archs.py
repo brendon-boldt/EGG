@@ -42,11 +42,13 @@ class Receiver(nn.Module):
         x: hidden state of current step (of sender's message), [B, h]
         receiver_input: input data points (one real label and other distractors), [B, data_size, n_data]
         '''
-        _, num_dp, _ = receiver_input.shape
+        _, data_size, _ = receiver_input.shape
         if self.method == "add":
-            scores = self.score(torch.cat((x.unsqueeze(1).repeat(1,num_dp, 1), receiver_input), 1)).squeeze(2)  # Additive attention: (B, s, h+d) --> (B, s, 1)
+            scores = torch.cat((x.unsqueeze(1).repeat(1, data_size, 1), receiver_input), 2)
+            scores = self.score(scores).squeeze(2)  # Additive attention: (B, s, h+d) --> (B, s, 1)
         elif self.method == "mul":
-            scores = torch.bmm(self.score(x.unsqueeze(1)), receiver_input.transpose(1,2)).squeeze(1)   # General attention: (B, 1, d) * (B, d, s) --> (B, 1, s)
+            scores = self.score(x.unsqueeze(1))
+            scores = torch.bmm(scores, receiver_input.transpose(1,2)).squeeze(1)   # General attention: (B, 1, d) * (B, d, s) --> (B, 1, s)
         return self.sm(scores)
 
 
