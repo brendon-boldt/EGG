@@ -11,7 +11,7 @@ import contextlib
 import torch.utils.data
 import torch.nn.functional as F
 import egg.core as core
-from egg.zoo.external_game.features import CSVDataset
+from egg.zoo.visA.features import VisaDataset
 from torch.utils.data import DataLoader
 
 from egg.zoo.external_game.archs import Sender, Receiver, ReinforceReceiver
@@ -19,10 +19,12 @@ from egg.zoo.external_game.archs import Sender, Receiver, ReinforceReceiver
 
 def get_params():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--train_data', type=str, default=None,
-                        help='Path to the train data')
-    parser.add_argument('--validation_data', type=str, default=None,
-                        help='Path to the validation data')
+    parser.add_argument('--data_path', type=str, default=None,
+                        help='Path to the unizped VisA dataset')
+    parser.add_argument('--valid_prop', type=float, default=0.2,
+                        help='Proportion of dataset to use for validation')
+    parser.add_argument('--n_distractors', type=int, default=4,
+                        help='Number of distractors for receiver to see')
     parser.add_argument('--dump_data', type=str, default=None,
                         help='Path to the data for which to produce output information')
     parser.add_argument('--dump_output', type=str, default=None,
@@ -129,17 +131,23 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if opts.cuda else "cpu")
 
-    train_loader = None
-    if opts.train_data:
-        train_loader = DataLoader(CSVDataset(path=opts.train_data),
-                              batch_size=opts.batch_size,
-                              shuffle=True, num_workers=1)
+    if opts.data_path is None:
+        raise ValueError("--data_path must be supplied")
+    whole_dataset = VisaDataset.from_xml_files(opts.data_path, opts.n_distractors)
+    validation_dataset, train_dataset = whole_dataset.valid_train_split(opts.valid_prop)
+    validation_loader = DataLoader(
+        validation_dataset,
+        batch_size=opts.batch_size,
+        shuffle=False,
+        num_workers=1
+    )
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=opts.batch_size,
+        shuffle=False,
+        num_workers=1
+    )
 
-    validation_loader = None
-    if opts.validation_data:
-        validation_loader = DataLoader(CSVDataset(path=opts.validation_data),
-                                   batch_size=opts.batch_size,
-                                   shuffle=False, num_workers=1)
 
     dump_loader = None
     if opts.dump_data:
