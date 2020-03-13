@@ -7,12 +7,14 @@ from __future__ import print_function
 import sys
 import argparse
 import contextlib
+import warnings
 
 import torch.utils.data
 import torch.nn.functional as F
 import egg.core as core
 from egg.zoo.visA.features import VisaDataset
 from torch.utils.data import DataLoader
+from scipy import stats
 
 from egg.zoo.external_game.archs import Sender, Receiver, ReinforceReceiver
 
@@ -90,11 +92,26 @@ def dump(game, dataset, device, is_gs):
         print(f'{sender_input};{message};{receiver_output};{label.item()}')
 
 
+def topographical_similarity(inputs, messages):
+    dist = lambda x, y: (x != y).sum(-1)
+    dists_x = [dist(x1, x2) for i, x1 in enumerate(inputs) for x2 in inputs[i:]]
+    dists_y = [
+        dist(y1, y2)
+        for i, y1 in enumerate(messages.argmax(-1))
+        for y2 in messages[i:].argmax(-1)
+    ]
+    # spearmanr complains about dividing by a 0 stddev sometimes; just let it nan
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+        return  stats.spearmanr(dists_x, dists_y)[0]
+
+
 def differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
     labels = labels.squeeze(1)
     acc = (receiver_output.argmax(dim=1) == labels).detach().float()
+    toposim = topographical_similarity(_sender_input, _message)
     loss = F.cross_entropy(receiver_output, labels, reduction="none")
-    return loss, {'acc': acc}
+    return loss, {'acc': acc, 'toposim': toposim}
 
 
 def non_differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
