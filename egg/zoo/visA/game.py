@@ -77,6 +77,8 @@ def get_params():
     parser.add_argument('--force_eos', action='store_true', default=False,
                         help="When set, forces that the last symbol of the message is EOS (default: False)")
 
+    parser.add_argument('--early_stopping_thr', type=float, default=0.98,
+                        help="Early stopping threshold on accuracy (defautl: 0.98)")
     args = core.init(parser)
     return args
 
@@ -207,7 +209,7 @@ if __name__ == "__main__":
         raise NotImplementedError(f'Unknown training mode, {opts.mode}')
 
     optimizer = core.build_optimizer(game.parameters())
-
+    # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
     trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
                            validation_data=validation_loader, callbacks = [core.ConsoleLogger(print_train_loss=False, print_test_loss=True)])
 
