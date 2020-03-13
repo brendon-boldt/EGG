@@ -209,7 +209,7 @@ if __name__ == "__main__":
     optimizer = core.build_optimizer(game.parameters())
 
     trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
-                           validation_data=validation_loader)
+                           validation_data=validation_loader, callbacks = [core.ConsoleLogger(print_train_loss=False, print_test_loss=True)])
 
     if dump_loader is not None:
         if opts.dump_output:

@@ -36,20 +36,22 @@ class Callback:
 
 class ConsoleLogger(Callback):
 
-    def __init__(self, print_train_loss=False, as_json=False):
+    def __init__(self, print_train_loss=False, as_json=False, print_test_loss=True):
         self.print_train_loss = print_train_loss
         self.as_json = as_json
         self.epoch_counter = 0
+        self.print_test_loss = print_test_loss
 
     def on_test_end(self, loss: float, logs: Dict[str, Any] = None):
-        if self.as_json:
-            dump = dict(mode='test', epoch=self.epoch_counter, loss=self._get_metric(loss))
-            for k, v in logs.items():
-                dump[k] = self._get_metric(v)
-            output_message = json.dumps(dump)
-        else:
-            output_message = f'test: epoch {self.epoch_counter}, loss {loss:.4f},  {logs}'
-        print(output_message, flush=True)
+        if self.print_test_loss:
+            if self.as_json:
+                dump = dict(mode='test', epoch=self.epoch_counter, loss=self._get_metric(loss))
+                for k, v in logs.items():
+                    dump[k] = self._get_metric(v)
+                output_message = json.dumps(dump)
+            else:
+                output_message = f'test: epoch {self.epoch_counter}, loss {loss:.4f},  {logs}'
+            print(output_message, flush=True)
 
     def on_epoch_end(self, loss: float, logs: Dict[str, Any] = None):
         self.epoch_counter += 1
