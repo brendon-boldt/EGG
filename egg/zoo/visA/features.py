@@ -38,7 +38,7 @@ class VisaDataset(Dataset):
         ds.frames = []
         for i in range(len(sender_inputs)):
             p = exclude_p(len(sender_inputs), i)
-            distractor_idxs = r.choice(len(sender_inputs), 5, replace=False, p=p)
+            distractor_idxs = r.choice(len(sender_inputs), ds.n_distractors + 1, replace=False, p=p)
             distractors = sender_inputs[distractor_idxs]
             true_idx = r.randint(0, ds.n_distractors + 1)
             distractors[true_idx] = sender_inputs[i]
@@ -81,7 +81,7 @@ class VisaDataset(Dataset):
 
     def get_output_max(self):
         # return max(x[1].item() for x in self.frame)
-        return self.n_distractors + 1
+        return self.n_distractors
 
     def __len__(self):
         return len(self.frames)
