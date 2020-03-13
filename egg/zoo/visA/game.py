@@ -8,6 +8,7 @@ import sys
 import argparse
 import contextlib
 import warnings
+import math
 
 import torch.utils.data
 import torch.nn.functional as F
@@ -135,12 +136,15 @@ def build_model(opts, train_loader, dump_loader):
 
     sender = Sender(n_hidden=opts.sender_hidden, n_features=n_features)
 
-    if opts.train_mode.lower() == 'gs':
-        loss = differentiable_loss
-        receiver = Receiver(output_size=receiver_outputs, n_hidden=opts.receiver_hidden)
-    else:
-        loss = non_differentiable_loss
-        receiver = ReinforceReceiver(output_size=receiver_outputs, n_hidden=opts.receiver_hidden)
+    receiver = Receiver(output_size=receiver_outputs, n_hidden=opts.receiver_hidden)
+    loss = differentiable_loss
+    # TODO: implement non_differentiable_loss for rf?
+    # if opts.train_mode.lower() == 'gs':
+    #     loss = differentiable_loss
+    #     receiver = Receiver(output_size=receiver_outputs, n_hidden=opts.receiver_hidden)
+    # else:
+    #     loss = non_differentiable_loss
+    #     receiver = ReinforceReceiver(output_size=receiver_outputs, n_hidden=opts.receiver_hidden)
 
     return sender, receiver, loss
 
@@ -184,11 +188,11 @@ if __name__ == "__main__":
                                          opts.vocab_size, opts.sender_embedding, opts.sender_hidden,
                                          cell=opts.sender_cell, max_len=opts.max_len, force_eos=opts.force_eos,
                                          num_layers=opts.sender_layers)
-        receiver = core.RnnReceiverReinforce(receiver, opts.vocab_size, opts.receiver_embedding,
+        receiver = core.RnnReceiverDeterministic(receiver, opts.vocab_size, opts.receiver_embedding,
                                                  opts.receiver_hidden, cell=opts.receiver_cell,
                                              num_layers=opts.receiver_layers)
 
-        game = core.SenderReceiverRnnReinforce(sender, receiver, non_differentiable_loss, sender_entropy_coeff=opts.sender_entropy_coeff,
+        game = core.SenderReceiverRnnReinforce(sender, receiver, differentiable_loss, sender_entropy_coeff=opts.sender_entropy_coeff,
                                                receiver_entropy_coeff=opts.receiver_entropy_coeff)
     elif opts.train_mode.lower() == 'gs':
         sender = core.RnnSenderGS(sender, opts.vocab_size, opts.sender_embedding, opts.sender_hidden,
