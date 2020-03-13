@@ -40,9 +40,13 @@ class VisaDataset(Dataset):
             p = exclude_p(len(sender_inputs), i)
             distractor_idxs = r.choice(len(sender_inputs), 5, replace=False, p=p)
             distractors = sender_inputs[distractor_idxs]
-            true_idx = r.randint(0, n_distractors)
+            true_idx = r.randint(0, ds.n_distractors + 1)
             distractors[true_idx] = sender_inputs[i]
-            frame = (torch.Tensor(sender_inputs[i]), true_idx, torch.Tensor(distractors))
+            frame = (
+                torch.Tensor(sender_inputs[i]),
+                np.array([true_idx]),
+                torch.Tensor(distractors)
+            )
             ds.frames.append(frame)
         return ds
 
@@ -50,7 +54,7 @@ class VisaDataset(Dataset):
     def from_frames(frames):
         ds = VisaDataset()
         ds.frames = frames
-        ds.n_distractors = frames[0][2].shape[0]
+        ds.n_distractors = frames[0][2].shape[0] - 1
         return ds
 
     def valid_train_split(self, valid_prop):
