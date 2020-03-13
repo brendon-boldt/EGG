@@ -129,6 +129,9 @@ class Trainer:
                 n_batches += 1
         mean_loss /= n_batches
         mean_rest = _div_dict(mean_rest, n_batches)
+        for k,v in mean_rest.items():
+            if type(v) == float:
+                mean_rest[k] = round(v,5)
 
         return mean_loss.item(), mean_rest
 
