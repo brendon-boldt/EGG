@@ -35,7 +35,7 @@ class EarlyStopperAccuracy(BaseEarlyStopper):
     Implements early stopping logic that stops training when a threshold on a metric
     is achieved.
     """
-    def __init__(self, threshold: float, field_name: str = 'acc', validation: bool = True) -> None:
+    def __init__(self, threshold: float, field_name: str = 'acc', validation: bool = True, gt: bool = True) -> None:
         """
         :param threshold: early stopping threshold for the validation set accuracy
             (assumes that the loss function returns the accuracy under name `field_name`)
@@ -47,6 +47,7 @@ class EarlyStopperAccuracy(BaseEarlyStopper):
         self.threshold = threshold
         self.field_name = field_name
         self.validation = validation
+        self.gt = gt
 
     def should_stop(self) -> bool:
         if self.validation:
@@ -55,6 +56,9 @@ class EarlyStopperAccuracy(BaseEarlyStopper):
         else:
             assert self.train_stats, 'Training data must be provided for early stooping to work'
             stats = self.train_stats
+        
+        if self.gt:
+            return stats[-1][1][self.field_name] >= self.threshold
+        else:
+            return stats[-1][1][self.field_name] <= self.threshold     
 
-        return stats[-1][1][self.field_name] >= self.threshold
-                
