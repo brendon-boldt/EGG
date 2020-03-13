@@ -103,13 +103,17 @@ def topographical_similarity(inputs, messages):
     # spearmanr complains about dividing by a 0 stddev sometimes; just let it nan
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=RuntimeWarning)
-        return  stats.spearmanr(dists_x, dists_y)[0]
+        corr = stats.spearmanr(dists_x, dists_y)[0]
+        if math.isnan(corr):
+            corr = 0
+        return  corr
 
 
 def differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
     labels = labels.squeeze(1)
     acc = (receiver_output.argmax(dim=1) == labels).detach().float()
     toposim = topographical_similarity(_sender_input, _message)
+    toposim = torch.FloatTensor([toposim]*len(acc))
     loss = F.cross_entropy(receiver_output, labels, reduction="none")
     return loss, {'acc': acc, 'toposim': toposim}
 
