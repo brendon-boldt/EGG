@@ -13,7 +13,7 @@ import math
 import torch.utils.data
 import torch.nn.functional as F
 import egg.core as core
-from egg.zoo.visA.features import VisaDataset
+from egg.zoo.visA.features import VisaDataset, InaDataset
 from torch.utils.data import DataLoader
 from scipy import stats
 
@@ -22,8 +22,10 @@ from egg.zoo.external_game.archs import Sender, Receiver, ReinforceReceiver
 
 def get_params():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--data_set', type=str, default='ina',
+                        help='Name of the dataset to use {ina, visa}')
     parser.add_argument('--data_path', type=str, default=None,
-                        help='Path to the unizped VisA dataset')
+                        help='Path to the dataset')
     parser.add_argument('--valid_prop', type=float, default=0.2,
                         help='Proportion of dataset to use for validation')
     parser.add_argument('--n_distractors', type=int, default=4,
@@ -159,8 +161,13 @@ if __name__ == "__main__":
     device = torch.device("cuda" if opts.cuda else "cpu")
 
     if opts.data_path is None:
+        # TODO This can be specfied by the argparser...
         raise ValueError("--data_path must be supplied")
-    whole_dataset = VisaDataset.from_xml_files(opts.data_path, opts.n_distractors)
+    # TODO And so can the limited options for the dataset
+    if opts.data_set == 'visa':
+        whole_dataset = VisaDataset.from_xml_files(opts.data_path, opts.n_distractors)
+    elif opts.data_set == 'ina':
+        whole_dataset = InaDataset.from_mat_file(opts.data_path, opts.n_distractors)
     validation_dataset, train_dataset = whole_dataset.valid_train_split(opts.valid_prop)
     validation_loader = DataLoader(
         validation_dataset,

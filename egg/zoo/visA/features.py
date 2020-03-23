@@ -8,12 +8,37 @@ from pathlib import Path
 from torch.utils.data import Dataset
 import torch
 import numpy as np
+from scipy.io import loadmat
 
 # TODO: Allow for distractor resampling for training data.
 
 
 class DistractorDataset(Dataset):
     """Base dataset for providing examples and distractors."""
+
+    def _build_frames(self, attr_arr, random_seed, classes=None):
+        def exclude_p(n, i):
+            p = np.full(n, 1 / (n - 1))
+            p[i] = 0.0
+            return p
+
+        r = np.random.RandomState(random_seed)
+        self.frames = []
+        for i in range(len(attr_arr)):
+            p = exclude_p(len(attr_arr), i)
+            distractor_idxs = r.choice(
+                len(attr_arr), self.n_distractors + 1, replace=False, p=p
+            )
+            distractors = attr_arr[distractor_idxs]
+            true_idx = r.randint(0, self.n_distractors + 1)
+            distractors[true_idx] = attr_arr[i]
+            frame = (
+                torch.Tensor(attr_arr[i]),
+                np.array([true_idx]),
+                torch.Tensor(distractors),
+            )
+            self.frames.append(frame)
+        return self
 
     @classmethod
     def from_frames(klass, frames):
@@ -55,6 +80,33 @@ class DistractorDataset(Dataset):
         return self.frames[idx]
 
 
+class InaDataset(DistractorDataset):
+    """Dataset for ImageNet Atttributes
+
+    TODO: Insert URL
+    """
+
+    @staticmethod
+    def from_mat_file(path, n_distractors, random_seed=None):
+        """Dataset for loading VisA data from XML format
+        Row format (3-tuple):
+        - (n_features,) shaped array of dtype bool
+        - integer index of the true vector
+        - (n_distractors, n_features) shaped array of dtype bool
+
+        """
+
+        # TODO add option for same class or same object
+
+        ds = InaDataset()
+        ds.n_distractors = n_distractors
+
+        path = Path(path)
+        raw_data = loadmat(path)['attrann'][0][0]
+        attr_arr = raw_data[2].squeeze().astype(np.float32)
+        ids = [raw_data[0][i][0][0] for i in range(len(raw_data[0]))]
+        classes = [item_id.split('_')[0] for item_id in ids]
+        return ds._build_frames(attr_arr, random_seed, classes)
 
 class VisaDataset(DistractorDataset):
     @staticmethod
@@ -73,28 +125,8 @@ class VisaDataset(DistractorDataset):
         path = Path(path)
         for xml_path in path.iterdir():
             rows += ds._parse_xml_file(xml_path)
-        sender_inputs = ds._rows_to_array(rows)
-
-        def exclude_p(n, i):
-            p = np.full(n, 1 / (n-1))
-            p[i] = 0.
-            return p
-
-        r = np.random.RandomState(random_seed)
-        ds.frames = []
-        for i in range(len(sender_inputs)):
-            p = exclude_p(len(sender_inputs), i)
-            distractor_idxs = r.choice(len(sender_inputs), ds.n_distractors + 1, replace=False, p=p)
-            distractors = sender_inputs[distractor_idxs]
-            true_idx = r.randint(0, ds.n_distractors + 1)
-            distractors[true_idx] = sender_inputs[i]
-            frame = (
-                torch.Tensor(sender_inputs[i]),
-                np.array([true_idx]),
-                torch.Tensor(distractors)
-            )
-            ds.frames.append(frame)
-        return ds
+        attr_arr = ds._rows_to_array(rows)
+        return ds._build_frames(attr_arr, random_seed)
 
     def _parse_xml_file(self, path):
         tree = ET.parse(path)
