@@ -9,8 +9,54 @@ from torch.utils.data import Dataset
 import torch
 import numpy as np
 
+# TODO: Allow for distractor resampling for training data.
 
-class VisaDataset(Dataset):
+
+class DistractorDataset(Dataset):
+    """Base dataset for providing examples and distractors."""
+
+    @classmethod
+    def from_frames(klass, frames):
+        ds = klass()
+        ds.frames = frames
+        ds.n_distractors = frames[0][2].shape[0] - 1
+        return ds
+
+    def valid_train_split(self, valid_prop):
+        valid_len = int(len(self) * valid_prop)
+        idxs = np.random.choice(len(self), len(self), replace=False)
+        valid_frames = []
+        train_frames = []
+        for i, idx in enumerate(idxs):
+            if i < valid_len:
+                valid_frames.append(self[idx])
+            else:
+                train_frames.append(self[idx])
+        return (
+            self.__class__.from_frames(valid_frames),
+            self.__class__.from_frames(train_frames),
+        )
+
+    def get_n_features(self):
+        return self.frames[0][0].shape[0]
+
+    def get_output_size(self):
+        # I do not know what this is supposed to return.
+        raise NotImplementedError
+
+    def get_output_max(self):
+        # return max(x[1].item() for x in self.frame)
+        return self.n_distractors
+
+    def __len__(self):
+        return len(self.frames)
+
+    def __getitem__(self, idx):
+        return self.frames[idx]
+
+
+
+class VisaDataset(DistractorDataset):
     @staticmethod
     def from_xml_files(path, n_distractors, random_seed=None):
         """Dataset for loading VisA data from XML format
@@ -49,45 +95,6 @@ class VisaDataset(Dataset):
             )
             ds.frames.append(frame)
         return ds
-
-    @staticmethod
-    def from_frames(frames):
-        ds = VisaDataset()
-        ds.frames = frames
-        ds.n_distractors = frames[0][2].shape[0] - 1
-        return ds
-
-    def valid_train_split(self, valid_prop):
-        valid_len = int(len(self) * valid_prop)
-        idxs = np.random.choice(len(self), len(self), replace=False)
-        valid_frames = []
-        train_frames = []
-        for i, idx in enumerate(idxs):
-            if i < valid_len:
-                valid_frames.append(self[idx])
-            else:
-                train_frames.append(self[idx])
-        return (
-            VisaDataset.from_frames(valid_frames),
-            VisaDataset.from_frames(train_frames),
-        )
-
-    def get_n_features(self):
-        return self.frames[0][0].shape[0]
-
-    def get_output_size(self):
-        # I do not know what this is supposed to return.
-        raise NotImplementedError
-
-    def get_output_max(self):
-        # return max(x[1].item() for x in self.frame)
-        return self.n_distractors
-
-    def __len__(self):
-        return len(self.frames)
-
-    def __getitem__(self, idx):
-        return self.frames[idx]
 
     def _parse_xml_file(self, path):
         tree = ET.parse(path)
