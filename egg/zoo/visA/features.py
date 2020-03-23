@@ -17,15 +17,26 @@ class DistractorDataset(Dataset):
     """Base dataset for providing examples and distractors."""
 
     def _build_frames(self, attr_arr, random_seed, classes=None):
-        def exclude_p(n, i):
-            p = np.full(n, 1 / (n - 1))
-            p[i] = 0.0
+        def exclude_p(n, idxs):
+            p = np.full(n, 1 / (n - len(idxs)))
+            p[idxs] = 0.0
             return p
+
+        if classes is None:
+            # If we are not using classes, treat each item as its own class
+            classes = list(range(attr_arr.shape[0]))
+
+        assert len(classes) == attr_arr.shape[0]
+        class_idxs = {}
+        for i, class_name in enumerate(classes):
+            if class_name not in class_idxs:
+                class_idxs[class_name] = []
+            class_idxs[class_name].append(i)
 
         r = np.random.RandomState(random_seed)
         self.frames = []
         for i in range(len(attr_arr)):
-            p = exclude_p(len(attr_arr), i)
+            p = exclude_p(len(attr_arr), class_idxs[classes[i]])
             distractor_idxs = r.choice(
                 len(attr_arr), self.n_distractors + 1, replace=False, p=p
             )
@@ -38,7 +49,6 @@ class DistractorDataset(Dataset):
                 torch.Tensor(distractors),
             )
             self.frames.append(frame)
-        return self
 
     @classmethod
     def from_frames(klass, frames):
@@ -102,11 +112,13 @@ class InaDataset(DistractorDataset):
         ds.n_distractors = n_distractors
 
         path = Path(path)
-        raw_data = loadmat(path)['attrann'][0][0]
+        raw_data = loadmat(path)["attrann"][0][0]
         attr_arr = raw_data[2].squeeze().astype(np.float32)
         ids = [raw_data[0][i][0][0] for i in range(len(raw_data[0]))]
-        classes = [item_id.split('_')[0] for item_id in ids]
-        return ds._build_frames(attr_arr, random_seed, classes)
+        classes = [item_id.split("_")[0] for item_id in ids]
+        ds._build_frames(attr_arr, random_seed, classes)
+        return ds
+
 
 class VisaDataset(DistractorDataset):
     @staticmethod
@@ -126,7 +138,8 @@ class VisaDataset(DistractorDataset):
         for xml_path in path.iterdir():
             rows += ds._parse_xml_file(xml_path)
         attr_arr = ds._rows_to_array(rows)
-        return ds._build_frames(attr_arr, random_seed)
+        ds._build_frames(attr_arr, random_seed)
+        return ds
 
     def _parse_xml_file(self, path):
         tree = ET.parse(path)
