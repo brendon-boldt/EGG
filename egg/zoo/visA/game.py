@@ -117,10 +117,8 @@ def topographical_similarity(inputs, messages):
 def differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
     labels = labels.squeeze(1)
     acc = (receiver_output.argmax(dim=1) == labels).detach().float()
-    toposim = topographical_similarity(_sender_input, _message)
-    toposim = torch.FloatTensor([toposim]*len(acc))
     loss = F.cross_entropy(receiver_output, labels, reduction="none")
-    return loss, {'acc': acc, 'toposim': toposim}
+    return loss, {'acc': acc}
 
 
 def non_differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
