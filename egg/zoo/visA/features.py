@@ -90,6 +90,26 @@ class DistractorDataset(Dataset):
         return self.frames[idx]
 
 
+class GroupedInaDataset(DistractorDataset):
+    @staticmethod
+    def from_file(path, n_distractors, random_seed=None):
+        train_ds = InaDataset()
+        test_ds = InaDataset()
+        train_ds.n_distractors = n_distractors
+        test_ds.n_distractors = n_distractors
+        path = Path(path)
+        np_file = np.load(path)
+        x_train = np_file['x_train']
+        y_train = np_file['y_train']
+        x_test = np_file['x_test']
+        y_test = np_file['y_test']
+
+        train_ds._build_frames(x_train, random_seed, y_train)
+        test_ds._build_frames(x_test, random_seed, y_test)
+        return train_ds, test_ds
+
+
+
 class InaDataset(DistractorDataset):
     """Dataset for ImageNet Atttributes
 
@@ -116,6 +136,8 @@ class InaDataset(DistractorDataset):
         attr_arr = raw_data[2].squeeze().astype(np.float32)
         ids = [raw_data[0][i][0][0] for i in range(len(raw_data[0]))]
         classes = [item_id.split("_")[0] for item_id in ids]
+        ds.attr_arr = attr_arr
+        ds.classes = classes
         ds._build_frames(attr_arr, random_seed, classes)
         return ds
 
