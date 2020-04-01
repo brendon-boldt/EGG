@@ -33,22 +33,22 @@ def get_params():
     parser.add_argument('--dump_output', type=str, default=None,
                         help='Path for dumping output information')
 
-    parser.add_argument('--batches_per_epoch', type=int, default=1000,
+    parser.add_argument('--batches_per_epoch', type=int, default=10000,
                         help='Number of batches per epoch (default: 1000)')
 
-    parser.add_argument('--sender_hidden', type=int, default=10,
+    parser.add_argument('--sender_hidden', type=int, default=20,
                         help='Size of the hidden layer of Sender (default: 10)')
-    parser.add_argument('--receiver_hidden', type=int, default=10,
+    parser.add_argument('--receiver_hidden', type=int, default=20,
                         help='Size of the hidden layer of Receiver (default: 10)')
 
-    parser.add_argument('--sender_embedding', type=int, default=10,
+    parser.add_argument('--sender_embedding', type=int, default=20,
                         help='Dimensionality of the embedding hidden layer for Sender (default: 10)')
-    parser.add_argument('--receiver_embedding', type=int, default=10,
+    parser.add_argument('--receiver_embedding', type=int, default=20,
                         help='Dimensionality of the embedding hidden layer for Receiver (default: 10)')
 
-    parser.add_argument('--sender_cell', type=str, default='rnn',
+    parser.add_argument('--sender_cell', type=str, default='gru',
                         help='Type of the cell used for Sender {rnn, gru, lstm} (default: rnn)')
-    parser.add_argument('--receiver_cell', type=str, default='rnn',
+    parser.add_argument('--receiver_cell', type=str, default='gru',
                         help='Type of the cell used for Receiver {rnn, gru, lstm} (default: rnn)')
     parser.add_argument('--sender_layers', type=int, default=1,
                         help="Number of layers in Sender's RNN (default: 1)")
@@ -69,6 +69,8 @@ def get_params():
     parser.add_argument('--train_mode', type=str, default='gs',
                         help="Selects whether GumbelSoftmax or Reinforce is used"
                              "(default: gs)")
+    parser.add_argument('--toposim', type=bool, default=False,
+                        help="boolean for measureing topological similarity (default: gs)")
 
     parser.add_argument('--n_classes', type=int, default=None,
                         help='Number of classes for Receiver to output. If not set, is automatically deduced from '
@@ -160,7 +162,7 @@ if __name__ == "__main__":
 
     if opts.data_path is None:
         raise ValueError("--data_path must be supplied")
-    whole_dataset = VisaDataset.from_xml_files(opts.data_path, opts.n_distractors)
+    whole_dataset = VisaDataset.from_xml_files(opts.data_path, opts.n_distractors, opts.random_seed)
     validation_dataset, train_dataset = whole_dataset.valid_train_split(opts.valid_prop)
     validation_loader = DataLoader(
         validation_dataset,
