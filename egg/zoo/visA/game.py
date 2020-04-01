@@ -13,7 +13,7 @@ import math
 import torch.utils.data
 import torch.nn.functional as F
 import egg.core as core
-from egg.zoo.visA.features import VisaDataset, InaDataset
+from egg.zoo.visA.features import VisaDataset, InaDataset, GroupedInaDataset
 from torch.utils.data import DataLoader
 from scipy import stats
 
@@ -162,11 +162,17 @@ if __name__ == "__main__":
         # TODO This can be specfied by the argparser...
         raise ValueError("--data_path must be supplied")
     # TODO And so can the limited options for the dataset
-    if opts.data_set == 'visa':
-        whole_dataset = VisaDataset.from_xml_files(opts.data_path, opts.n_distractors)
-    elif opts.data_set == 'ina':
-        whole_dataset = InaDataset.from_mat_file(opts.data_path, opts.n_distractors)
-    validation_dataset, train_dataset = whole_dataset.valid_train_split(opts.valid_prop)
+    if opts.data_set == 'gina':
+        train_dataset, validation_dataset = GroupedInaDataset.from_file(
+            opts.data_path,
+            opts.n_distractors,
+        )
+    else:
+        if opts.data_set == 'visa':
+            whole_dataset = VisaDataset.from_xml_files(opts.data_path, opts.n_distractors)
+        elif opts.data_set == 'ina':
+            whole_dataset = InaDataset.from_mat_file(opts.data_path, opts.n_distractors)
+        validation_dataset, train_dataset = whole_dataset.valid_train_split(opts.valid_prop)
     validation_loader = DataLoader(
         validation_dataset,
         batch_size=opts.batch_size,
