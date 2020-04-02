@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
@@ -27,7 +28,7 @@ class ReinforceReceiver(nn.Module):
 
 
 class Receiver(nn.Module):
-    def __init__(self, n_data, n_hidden, method="add"):
+    def __init__(self, n_data, n_hidden, method="mul"):
         super(Receiver, self).__init__()
         self.n_hidden = n_hidden
         self.method = method
@@ -44,11 +45,15 @@ class Receiver(nn.Module):
         '''
         _, data_size, _ = receiver_input.shape
         if self.method == "add":
-            scores = torch.cat((x.unsqueeze(1).repeat(1, data_size, 1), receiver_input), 2)
-            scores = self.score(scores).squeeze(2)  # Additive attention: (B, s, h+d) --> (B, s, 1)
+            # TODO: seems like "add" not working. have to investigate.
+            scores = torch.cat((x.unsqueeze(1).repeat(
+                1, data_size, 1), receiver_input), 2)
+            # Additive attention: (B, s, h+d) --> (B, s, 1)
+            scores = self.score(scores).squeeze(2)
         elif self.method == "mul":
             scores = self.score(x.unsqueeze(1))
-            scores = torch.bmm(scores, receiver_input.transpose(1,2)).squeeze(1)   # General attention: (B, 1, d) * (B, d, s) --> (B, 1, s)
+            scores = torch.bmm(scores, receiver_input.transpose(1, 2)).squeeze(
+                1)   # General attention: (B, 1, d) * (B, d, s) --> (B, 1, s)
         return self.sm(scores)
 
 
@@ -63,9 +68,9 @@ class Sender(nn.Module):
         elif activation == "leaky":
             self.activation = nn.LeakyReLU()
         else:
-            raise ValueError("Sender activation func.: [tanh|relu|leaky] supported at this moment")
+            raise ValueError(
+                "Sender activation func.: [tanh|relu|leaky] supported at this moment")
 
     def forward(self, x):
         x = self.fc1(x)
         return self.activation(x)
-

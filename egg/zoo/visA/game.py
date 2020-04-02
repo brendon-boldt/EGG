@@ -13,11 +13,11 @@ import math
 import torch.utils.data
 import torch.nn.functional as F
 import egg.core as core
-from egg.zoo.visA.features import VisaDataset, InaDataset, GroupedInaDataset
 from torch.utils.data import DataLoader
 from scipy import stats
 
-from egg.zoo.external_game.archs import Sender, Receiver, ReinforceReceiver
+from egg.zoo.visA.features import VisaDataset, InaDataset, GroupedInaDataset
+from egg.zoo.visA.archs import Sender, Receiver, ReinforceReceiver
 
 
 def get_params():
@@ -89,19 +89,22 @@ def get_params():
 
 def dump(game, dataset, device, is_gs):
     sender_inputs, messages, _, receiver_outputs, labels = \
-        core.dump_sender_receiver(game, dataset, gs=is_gs, device=device, variable_length=True)
+        core.dump_sender_receiver(
+            game, dataset, gs=is_gs, device=device, variable_length=True)
 
     for sender_input, message, receiver_output, label \
             in zip(sender_inputs, messages, receiver_outputs, labels):
         sender_input = ' '.join(map(str, sender_input.tolist()))
         message = ' '.join(map(str, message.tolist()))
-        if is_gs: receiver_output = receiver_output.argmax()
+        if is_gs:
+            receiver_output = receiver_output.argmax()
         print(f'{sender_input};{message};{receiver_output};{label.item()}')
 
 
 def topographical_similarity(inputs, messages):
-    dist = lambda x, y: (x != y).sum(-1)
-    dists_x = [dist(x1, x2) for i, x1 in enumerate(inputs) for x2 in inputs[i:]]
+    def dist(x, y): return (x != y).sum(-1)
+    dists_x = [dist(x1, x2) for i, x1 in enumerate(inputs)
+               for x2 in inputs[i:]]
     dists_y = [
         dist(y1, y2)
         for i, y1 in enumerate(messages.argmax(-1))
@@ -113,7 +116,7 @@ def topographical_similarity(inputs, messages):
         corr = stats.spearmanr(dists_x, dists_y)[0]
         if math.isnan(corr):
             corr = 0
-        return  corr
+        return corr
 
 
 def differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
@@ -130,17 +133,19 @@ def non_differentiable_loss(_sender_input, _message, _receiver_input, receiver_o
 
 
 def build_model(opts, train_loader, dump_loader):
-    n_features = train_loader.dataset.get_n_features() if train_loader else dump_loader.dataset.get_n_features()
+    n_features = train_loader.dataset.get_n_features(
+    ) if train_loader else dump_loader.dataset.get_n_features()
 
     if opts.n_classes is not None:
         receiver_outputs = opts.n_classes
     else:
         receiver_outputs = train_loader.dataset.get_output_max() + 1 if train_loader else \
-                dump_loader.dataset.get_output_max() + 1
+            dump_loader.dataset.get_output_max() + 1
 
     sender = Sender(n_hidden=opts.sender_hidden, n_features=n_features)
 
-    receiver = Receiver(output_size=receiver_outputs, n_hidden=opts.receiver_hidden)
+    receiver = Receiver(n_data=n_features,
+                        n_hidden=opts.receiver_hidden)
     loss = differentiable_loss
     # TODO: implement non_differentiable_loss for rf?
     # if opts.train_mode.lower() == 'gs':
@@ -172,10 +177,13 @@ if __name__ == "__main__":
         )
     else:
         if opts.data_set == 'visa':
-            whole_dataset = VisaDataset.from_xml_files(opts.data_path, opts.n_distractors)
+            whole_dataset = VisaDataset.from_xml_files(
+                opts.data_path, opts.n_distractors)
         elif opts.data_set == 'ina':
-            whole_dataset = InaDataset.from_mat_file(opts.data_path, opts.n_distractors)
-        validation_dataset, train_dataset = whole_dataset.valid_train_split(opts.valid_prop)
+            whole_dataset = InaDataset.from_mat_file(
+                opts.data_path, opts.n_distractors)
+        validation_dataset, train_dataset = whole_dataset.valid_train_split(
+            opts.valid_prop)
     validation_loader = DataLoader(
         validation_dataset,
         batch_size=opts.batch_size,
@@ -188,7 +196,6 @@ if __name__ == "__main__":
         shuffle=True,
         num_workers=1
     )
-
 
     dump_loader = None
     if opts.dump_data:
@@ -206,7 +213,7 @@ if __name__ == "__main__":
                                          num_layers=opts.sender_layers)
         receiver = core.RnnReceiverDeterministic(receiver, opts.vocab_size, opts.receiver_embedding,
                                                  opts.receiver_hidden, cell=opts.receiver_cell,
-                                             num_layers=opts.receiver_layers)
+                                                 num_layers=opts.receiver_layers)
 
         game = core.SenderReceiverRnnReinforce(sender, receiver, differentiable_loss, sender_entropy_coeff=opts.sender_entropy_coeff,
                                                receiver_entropy_coeff=opts.receiver_entropy_coeff)
@@ -216,7 +223,7 @@ if __name__ == "__main__":
                                   force_eos=opts.force_eos)
 
         receiver = core.RnnReceiverGS(receiver, opts.vocab_size, opts.receiver_embedding,
-                    opts.receiver_hidden, cell=opts.receiver_cell)
+                                      opts.receiver_hidden, cell=opts.receiver_cell)
 
         game = core.SenderReceiverRnnGS(sender, receiver, differentiable_loss)
     else:
@@ -225,7 +232,7 @@ if __name__ == "__main__":
     optimizer = core.build_optimizer(game.parameters())
     # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
     trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
-                           validation_data=validation_loader, callbacks = [core.ConsoleLogger(print_train_loss=False, print_test_loss=True)])
+                           validation_data=validation_loader, callbacks=[core.ConsoleLogger(print_train_loss=False, print_test_loss=True)])
 
     if dump_loader is not None:
         if opts.dump_output:
@@ -239,4 +246,3 @@ if __name__ == "__main__":
             trainer.save_checkpoint()
 
     core.close()
-
