@@ -326,9 +326,9 @@ class RnnReceiverGS(nn.Module):
             else:
                 h_t = self.cell(e_t, prev_hidden)
 
-            outputs.append(self.agent(h_t, input))
+            # outputs.append(self.agent(h_t, input))
             prev_hidden = h_t
-
+            outputs.append(self.agent(h_t, input))
         outputs = torch.stack(outputs).permute(1, 0, 2)
 
         return outputs
