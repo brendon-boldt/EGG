@@ -177,10 +177,10 @@ if __name__ == "__main__":
         )
     else:
         if opts.data_set == 'visa':
-            whole_dataset = VisaDataset.from_xml_files(
+            whole_dataset = VisaDataset.from_file(
                 opts.data_path, opts.n_distractors)
         elif opts.data_set == 'ina':
-            whole_dataset = InaDataset.from_mat_file(
+            whole_dataset = InaDataset.from_file(
                 opts.data_path, opts.n_distractors)
         validation_dataset, train_dataset = whole_dataset.valid_train_split(
             opts.valid_prop)
@@ -198,10 +198,10 @@ if __name__ == "__main__":
     )
 
     dump_loader = None
-    if opts.dump_data:
-        dump_loader = DataLoader(CSVDataset(path=opts.dump_data),
-                                 batch_size=opts.batch_size,
-                                 shuffle=False, num_workers=1)
+    # if opts.dump_data:
+    #     dump_loader = DataLoader(CSVDataset(path=opts.dump_data),
+    #                              batch_size=opts.batch_size,
+    #                              shuffle=False, num_workers=1)
 
     assert train_loader or dump_loader, 'Either training or dump data must be specified'
     sender, receiver, loss = build_model(opts, train_loader, dump_loader)
