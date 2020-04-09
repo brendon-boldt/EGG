@@ -7,17 +7,15 @@ from __future__ import print_function
 import sys
 import argparse
 import contextlib
-import warnings
-import math
 
 import torch.utils.data
 import torch.nn.functional as F
 import egg.core as core
 from torch.utils.data import DataLoader
-from scipy import stats
 
 from egg.zoo.visA.features import VisaDataset, InaDataset, GroupedInaDataset
 from egg.zoo.visA.archs import Sender, Receiver, ReinforceReceiver
+from egg.zoo.visA.callbacks import ToposimCallback
 
 
 def get_params():
@@ -99,24 +97,6 @@ def dump(game, dataset, device, is_gs):
         if is_gs:
             receiver_output = receiver_output.argmax()
         print(f'{sender_input};{message};{receiver_output};{label.item()}')
-
-
-def topographical_similarity(inputs, messages):
-    def dist(x, y): return (x != y).sum(-1)
-    dists_x = [dist(x1, x2) for i, x1 in enumerate(inputs)
-               for x2 in inputs[i:]]
-    dists_y = [
-        dist(y1, y2)
-        for i, y1 in enumerate(messages.argmax(-1))
-        for y2 in messages[i:].argmax(-1)
-    ]
-    # spearmanr complains about dividing by a 0 stddev sometimes; just let it nan
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=RuntimeWarning)
-        corr = stats.spearmanr(dists_x, dists_y)[0]
-        if math.isnan(corr):
-            corr = 0
-        return corr
 
 
 def differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
@@ -231,8 +211,12 @@ if __name__ == "__main__":
 
     optimizer = core.build_optimizer(game.parameters())
     # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
+    callbacks = [
+        ToposimCallback(validation_loader, sender, epochs=50),
+        core.ConsoleLogger(print_train_loss=True, print_test_loss=True),
+    ]
     trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
-                           validation_data=validation_loader, callbacks=[core.ConsoleLogger(print_train_loss=False, print_test_loss=True)])
+                           validation_data=validation_loader, callbacks=callbacks)
 
     if dump_loader is not None:
         if opts.dump_output:
