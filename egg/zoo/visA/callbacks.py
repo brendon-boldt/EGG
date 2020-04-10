@@ -1,6 +1,6 @@
 import math
 import warnings
-from typing import Dict, Any, Callable, Optional
+from typing import Dict, Any, Callable, Optional, List
 
 import torch
 import numpy as np
@@ -9,16 +9,12 @@ from scipy import stats
 from egg.core import Callback, move_to, Trainer
 
 
-# TODO Incorporate embeddings into toposim
-
-
-def cosine_dist(vecs: torch.Tensor) -> torch.Tensor:
+def cosine_dist(vecs: torch.Tensor, reduce_dims=-1) -> torch.Tensor:
     vecs /= vecs.norm(dim=-1, keepdim=True)
-    return -(vecs.unsqueeze(0) * vecs.unsqueeze(1)).sum(-1)
+    return -(vecs.unsqueeze(0) * vecs.unsqueeze(1)).sum(reduce_dims)
 
 
 def levenshtein_dist(msgs: torch.Tensor) -> torch.Tensor:
-    msgs = msgs.argmax(-1)
     return (msgs.unsqueeze(0) != msgs.unsqueeze(1)).sum(-1)
 
 
@@ -26,17 +22,12 @@ def get_upper_triangle(x: np.ndarray) -> np.ndarray:
     return x[np.triu_indices(x.shape[0])].reshape(-1)
 
 
-def topographical_similarity(
+def calculate_toposim(
     inputs: torch.Tensor,
     messages: torch.Tensor,
-    input_dist: Optional[Callable] = None,
-    message_dist: Optional[Callable] = None,
+    input_dist: Callable,
+    message_dist: Callable,
 ) -> float:
-    if input_dist is None:
-        input_dist = cosine_dist
-    if message_dist is None:
-        message_dist = levenshtein_dist
-
     in_dists = get_upper_triangle(input_dist(inputs).cpu().numpy())
     msg_dists = get_upper_triangle(message_dist(messages).cpu().numpy())
     # spearmanr complains about dividing by a 0 stddev sometimes; just let it nan
@@ -51,29 +42,48 @@ def topographical_similarity(
 class ToposimCallback(Callback):
     trainer: "Trainer"
 
-    def __init__(self, dataset, sender, epochs=100) -> None:
+    def __init__(self, dataset, sender, use_embeddings=True) -> None:
+        self.use_embeddings = use_embeddings
         self.dataset = dataset
         self.sender = sender
-        self.epochs = epochs
 
-    def on_test_end(self, loss: float, logs: Dict[str, Any] = None) -> None:
+    def on_test_end(self, *args, **kwargs) -> None:
+        return self._caluclate_toposim(*args, **kwargs)
+
+    def on_epoch_end(self, *args, **kwargs) -> None:
+        return self._caluclate_toposim(*args, **kwargs)
+
+    def _caluclate_toposim(self, loss: float, logs: Dict[str, Any] = None) -> None:
         sender_mode = self.sender.training
         self.sender.eval()
-        messages = []
+        messages: List[torch.Tensor] = []
         inputs = []
         with torch.no_grad():
             for batch in self.dataset:
                 # batch = move_to(batch, self.sender.device)
-                # optimized_loss, rest = self.game(*batch)
                 inputs.append(batch[0])
-                messages.append(self.sender(batch[0]))
+                output = self.sender(batch[0])
+                # TODO Determine a better way to do this
+                # If the method RF, the output is a tuple
+                if type(output) == tuple:
+                    messages.append(output[0])
+                else:
+                    messages.append(output.argmax(-1))
         self.sender.train(sender_mode)
-        toposim = topographical_similarity(torch.cat(inputs, 0), torch.cat(messages, 0))
+        if self.use_embeddings:
+            embeddings = self.sender.embedding.weight.transpose(0, 1).detach()
+            toposim = calculate_toposim(
+                torch.cat(inputs, 0),
+                embeddings[torch.cat(messages, 0)],
+                cosine_dist,
+                lambda x: cosine_dist(x, reduce_dims=(-2, -1)),
+            )
+        else:
+            toposim = calculate_toposim(
+                torch.cat(inputs, 0),
+                torch.cat(messages, 0).argmax(-1),
+                cosine_dist,
+                levenshtein_dist,
+            )
         if logs is not None:
             logs["toposim"] = toposim
-
-    def on_epoch_begin(self):
-        pass
-
-    def on_epoch_end(self, loss: float, logs: Dict[str, Any] = None):
-        pass

@@ -69,8 +69,9 @@ def get_params():
     parser.add_argument('--train_mode', type=str, default='gs',
                         help="Selects whether GumbelSoftmax or Reinforce is used"
                              "(default: gs)")
-    parser.add_argument('--toposim', type=bool, default=False,
-                        help="boolean for measureing topological similarity (default: gs)")
+    parser.add_argument('--toposim_embed', type=bool, default=True,
+                        help=("If true, use cosine distance of embeddings of messages, "
+                              "otherwise use Levenshtein distance."))
 
     parser.add_argument('--n_classes', type=int, default=None,
                         help='Number of classes for Receiver to output. If not set, is automatically deduced from '
@@ -212,7 +213,7 @@ if __name__ == "__main__":
     optimizer = core.build_optimizer(game.parameters())
     # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
     callbacks = [
-        ToposimCallback(validation_loader, sender, epochs=50),
+        ToposimCallback(validation_loader, sender, use_embeddings=opts.toposim_embed),
         core.ConsoleLogger(print_train_loss=True, print_test_loss=True),
     ]
     trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
