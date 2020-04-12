@@ -7,6 +7,7 @@ from __future__ import print_function
 import sys
 import argparse
 import contextlib
+import math
 
 import torch.utils.data
 import torch.nn.functional as F
@@ -33,8 +34,8 @@ def get_params():
     parser.add_argument('--dump_output', type=str, default=None,
                         help='Path for dumping output information')
 
-    parser.add_argument('--batches_per_epoch', type=int, default=10000,
-                        help='Number of batches per epoch (default: 1000)')
+    parser.add_argument('--examples_per_epoch', type=int, default=-1,
+                        help='Number of batches per epoch (default: size of training set)')
 
     parser.add_argument('--sender_hidden', type=int, default=20,
                         help='Size of the hidden layer of Sender (default: 10)')
@@ -165,6 +166,11 @@ if __name__ == "__main__":
                 opts.data_path, opts.n_distractors)
         validation_dataset, train_dataset = whole_dataset.valid_train_split(
             opts.valid_prop)
+    if examples_per_epoch > 0:
+        train_dataset.n_repeats = math.ceil(
+            opts.examples_per_epoch / len(train_dataset)
+        )
+    print(f"Examples per epoch: {len(train_dataset)}")
     validation_loader = DataLoader(
         validation_dataset,
         batch_size=opts.batch_size,
@@ -213,7 +219,7 @@ if __name__ == "__main__":
     optimizer = core.build_optimizer(game.parameters())
     # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
     callbacks = [
-        ToposimCallback(validation_loader, sender, use_embeddings=opts.toposim_embed),
+        ToposimCallback(validation_loader, train_loader, sender, use_embeddings=opts.toposim_embed),
         core.ConsoleLogger(print_train_loss=True, print_test_loss=True),
     ]
     trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,

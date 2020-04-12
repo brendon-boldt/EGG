@@ -3,6 +3,7 @@ import warnings
 from typing import Dict, Any, Callable, Optional, List
 
 import torch
+from torch.utils.data import DataLoader
 import numpy as np
 from scipy import stats
 
@@ -42,24 +43,32 @@ def calculate_toposim(
 class ToposimCallback(Callback):
     trainer: "Trainer"
 
-    def __init__(self, dataset, sender, use_embeddings=True) -> None:
+    def __init__(
+        self, valid_dl: DataLoader, train_dl: DataLoader, sender, use_embeddings=True
+    ) -> None:
         self.use_embeddings = use_embeddings
-        self.dataset = dataset
+        self.valid_dl = valid_dl
+        self.train_dl = train_dl
         self.sender = sender
 
     def on_test_end(self, *args, **kwargs) -> None:
-        return self._caluclate_toposim(*args, **kwargs)
+        return self._caluclate_toposim(self.valid_dl, *args, **kwargs)
 
     def on_epoch_end(self, *args, **kwargs) -> None:
-        return self._caluclate_toposim(*args, **kwargs)
+        return self._caluclate_toposim(self.train_dl, *args, **kwargs)
 
-    def _caluclate_toposim(self, loss: float, logs: Dict[str, Any] = None) -> None:
+    def _caluclate_toposim(
+        self, dataloader: DataLoader, loss: float, logs: Dict[str, Any] = None
+    ) -> None:
         sender_mode = self.sender.training
         self.sender.eval()
         messages: List[torch.Tensor] = []
         inputs = []
+        # Ignore repeats for toposim calculation
+        n_repeats = dataloader.dataset.n_repeats
+        dataloader.dataset.n_repeats = 1
         with torch.no_grad():
-            for batch in self.dataset:
+            for batch in dataloader:
                 # batch = move_to(batch, self.sender.device)
                 inputs.append(batch[0])
                 output = self.sender(batch[0])
@@ -69,6 +78,7 @@ class ToposimCallback(Callback):
                     messages.append(output[0])
                 else:
                     messages.append(output.argmax(-1))
+        dataloader.dataset.n_repeats = n_repeats
         self.sender.train(sender_mode)
         if self.use_embeddings:
             embeddings = self.sender.embedding.weight.transpose(0, 1).detach()

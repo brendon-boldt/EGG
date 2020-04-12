@@ -32,6 +32,7 @@ class DistractorDataset(Dataset):
         self.items = Tensor(items)
         self.distractor_probs: List[np.ndarray] = []
         self.random_state = np.random.RandomState(random_seed)
+        self.n_repeats = 1
         if classes is None:
             # If we are not using classes, treat each item as its own class
             self.classes = np.arange(self.items.shape[0])
@@ -105,9 +106,11 @@ class DistractorDataset(Dataset):
         return self.n_distractors
 
     def __len__(self) -> int:
-        return len(self.items)
+        return len(self.items) * self.n_repeats
 
     def __getitem__(self, idx) -> Tuple[Tensor, LongTensor, Tensor]:
+        # Account for repeat dataset
+        idx = idx % len(self.items)
         if self.resample:
             true_idx, dist_idxs = self._sample_distractors(idx)
         else:
