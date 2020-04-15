@@ -166,7 +166,7 @@ if __name__ == "__main__":
                 opts.data_path, opts.n_distractors)
         validation_dataset, train_dataset = whole_dataset.valid_train_split(
             opts.valid_prop)
-    if examples_per_epoch > 0:
+    if opts.examples_per_epoch > 0:
         train_dataset.n_repeats = math.ceil(
             opts.examples_per_epoch / len(train_dataset)
         )
