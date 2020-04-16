@@ -48,6 +48,7 @@ class ToposimCallback(Callback):
     def __init__(
         self, valid_dl: DataLoader, train_dl: DataLoader, sender, use_embeddings=True
     ) -> None:
+        super(ToposimCallback, self).__init__()
         self.use_embeddings = use_embeddings
         self.valid_dl = valid_dl
         self.train_dl = train_dl
@@ -100,8 +101,48 @@ class ToposimCallback(Callback):
         if logs is not None:
             logs["toposim"] = toposim
 
-class ConsoleLogger(Callback):
 
+class MetricLogger(Callback):
+    def __init__(self) -> None:
+        super(MetricLogger, self).__init__()
+        self._finalized_logs: Optional[Dict[str, Any]] = None
+        self._train_logs: List[Dict[str, Any]] = []
+        self._valid_logs: List[Dict[str, Any]] = []
+
+    def on_test_end(self, loss: float, logs: Dict[str, Any]) -> None:
+        self._valid_logs.append({"loss": loss, **logs})
+
+    def on_epoch_end(self, loss: float, logs: Dict[str, Any]) -> None:
+        self._train_logs.append({"loss": loss, **logs})
+
+    @staticmethod
+    def _dicts_to_arrays(dict_list: List[Dict[str, Any]]) -> Dict[str, np.ndarray]:
+        train_lists: Dict[str, List] = {}
+        for d in dict_list:
+            for field, value in d.items():
+                if field not in train_lists:
+                    train_lists[field] = []
+                if torch.is_tensor(value):
+                    value = value.detach().numpy()
+                train_lists[field].append(value)
+        return {k: np.array(v) for k, v in train_lists.items()}
+
+    def on_train_end(self) -> None:
+        assert len(self._train_logs) > 0
+        assert len(self._valid_logs) > 0
+        train_logs = MetricLogger._dicts_to_arrays(self._train_logs)
+        valid_logs = MetricLogger._dicts_to_arrays(self._valid_logs)
+        # TODO Add other post-processing of metrics
+        self._finalized_logs = {"train": train_logs, "valid": valid_logs}
+
+    def get_finalized_logs(self) -> Dict[str, Any]:
+        if self._finalized_logs is None:
+            raise ValueError("Logs are not yet finalized.")
+        else:
+            return self._finalized_logs
+
+
+class ConsoleLogger(Callback):
     def __init__(self, print_train_loss=False, as_json=False, print_test_loss=True):
         self.print_train_loss = print_train_loss
         self.as_json = as_json
@@ -113,12 +154,16 @@ class ConsoleLogger(Callback):
             logs = {}
         if self.print_test_loss:
             if self.as_json:
-                dump = dict(mode='test', epoch=self.epoch_counter, loss=self._get_metric(loss))
+                dump = dict(
+                    mode="test", epoch=self.epoch_counter, loss=self._get_metric(loss)
+                )
                 for k, v in logs.items():
                     dump[k] = self._get_metric(v)
                 output_message = json.dumps(dump)
             else:
-                output_message = f'test: epoch {self.epoch_counter}, loss {loss:.4f},  {logs}'
+                output_message = (
+                    f"test: epoch {self.epoch_counter}, loss {loss:.4f},  {logs}"
+                )
             logging.info(output_message)
 
     def on_epoch_end(self, loss: float, logs: Dict[str, Any] = None):
@@ -128,12 +173,16 @@ class ConsoleLogger(Callback):
 
         if self.print_train_loss:
             if self.as_json:
-                dump = dict(mode='train', epoch=self.epoch_counter, loss=self._get_metric(loss))
+                dump = dict(
+                    mode="train", epoch=self.epoch_counter, loss=self._get_metric(loss)
+                )
                 for k, v in logs.items():
                     dump[k] = self._get_metric(v)
                 output_message = json.dumps(dump)
             else:
-                output_message = f'train: epoch {self.epoch_counter}, loss {loss:.4f},  {logs}'
+                output_message = (
+                    f"train: epoch {self.epoch_counter}, loss {loss:.4f},  {logs}"
+                )
             logging.info(output_message)
 
     def _get_metric(self, metric: Union[torch.Tensor, float]) -> float:
@@ -144,4 +193,4 @@ class ConsoleLogger(Callback):
         elif type(metric) == float:
             return metric
         else:
-            raise TypeError('Metric must be either float or torch.Tensor')
+            raise TypeError("Metric must be either float or torch.Tensor")

@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader
 
 from egg.zoo.visA.features import VisaDataset, InaDataset, GroupedInaDataset
 from egg.zoo.visA.archs import Sender, Receiver, ReinforceReceiver
-from egg.zoo.visA.callbacks import ToposimCallback, ConsoleLogger
+from egg.zoo.visA import callbacks
 from egg.zoo.visA.trainers import Trainer
 
 
@@ -224,9 +224,17 @@ def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
     optimizer = optimizers[opts.optimizer](game.parameters(), lr=opts.lr)
 
     # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
-    callbacks = [
-        ToposimCallback(validation_loader, train_loader, sender, use_embeddings=opts.toposim_embed),
-        ConsoleLogger(print_train_loss=True, print_test_loss=True),
+    metric_logger = callbacks.MetricLogger()
+    callback_list = [
+        callbacks.ToposimCallback(
+            validation_loader,
+            train_loader,
+            sender,
+            use_embeddings=opts.toposim_embed
+        ),
+        callbacks.ConsoleLogger(print_train_loss=True, print_test_loss=True),
+        # It is important that this logger is last so it picks up any post-hoc metrics
+        metric_logger,
     ]
     trainer = Trainer(
         game=game,
@@ -234,7 +242,7 @@ def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
         optimizer=optimizer,
         train_data=train_loader,
         validation_data=validation_loader,
-        callbacks=callbacks,
+        callbacks=callback_list,
    )
 
     if dump_loader is not None:
@@ -249,8 +257,8 @@ def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
             trainer.save_checkpoint()
 
     core.close()
-    # TODO
-    return {}
+    # TODO add examples per epoch and opts
+    return metric_logger.get_finalized_logs()
 
 if __name__ == "__main__":
     opts = get_params()
