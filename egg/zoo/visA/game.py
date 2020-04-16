@@ -8,6 +8,8 @@ import sys
 import argparse
 import contextlib
 import math
+import logging
+from typing import Dict, Any
 
 import torch.utils.data
 import torch.nn.functional as F
@@ -16,7 +18,8 @@ from torch.utils.data import DataLoader
 
 from egg.zoo.visA.features import VisaDataset, InaDataset, GroupedInaDataset
 from egg.zoo.visA.archs import Sender, Receiver, ReinforceReceiver
-from egg.zoo.visA.callbacks import ToposimCallback
+from egg.zoo.visA.callbacks import ToposimCallback, ConsoleLogger
+from egg.zoo.visA.trainers import Trainer
 
 
 def get_params():
@@ -98,7 +101,7 @@ def dump(game, dataset, device, is_gs):
         message = ' '.join(map(str, message.tolist()))
         if is_gs:
             receiver_output = receiver_output.argmax()
-        print(f'{sender_input};{message};{receiver_output};{label.item()}')
+        logging.info(f'{sender_input};{message};{receiver_output};{label.item()}')
 
 
 def differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
@@ -139,11 +142,12 @@ def build_model(opts, train_loader, dump_loader):
 
     return sender, receiver, loss
 
+optimizers = {'adam': torch.optim.Adam,
+             'sgd': torch.optim.SGD,
+             'adagrad': torch.optim.Adagrad}
 
-if __name__ == "__main__":
-    opts = get_params()
-
-    print(f'Launching game with parameters: {opts}')
+def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
+    logging.info(f'Launching game with parameters: {opts}')
 
     device = torch.device("cuda" if opts.cuda else "cpu")
 
@@ -170,7 +174,7 @@ if __name__ == "__main__":
         train_dataset.n_repeats = math.ceil(
             opts.examples_per_epoch / len(train_dataset)
         )
-    print(f"Examples per epoch: {len(train_dataset)}")
+    logging.info(f"Examples per epoch: {len(train_dataset)}")
     validation_loader = DataLoader(
         validation_dataset,
         batch_size=opts.batch_size,
@@ -216,14 +220,22 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError(f'Unknown training mode, {opts.mode}')
 
-    optimizer = core.build_optimizer(game.parameters())
+    # optimizer = core.build_optimizer(game.parameters())
+    optimizer = optimizers[opts.optimizer](game.parameters(), lr=opts.lr)
+
     # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
     callbacks = [
         ToposimCallback(validation_loader, train_loader, sender, use_embeddings=opts.toposim_embed),
-        core.ConsoleLogger(print_train_loss=True, print_test_loss=True),
+        ConsoleLogger(print_train_loss=True, print_test_loss=True),
     ]
-    trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
-                           validation_data=validation_loader, callbacks=callbacks)
+    trainer = Trainer(
+        game=game,
+        opts=opts,
+        optimizer=optimizer,
+        train_data=train_loader,
+        validation_data=validation_loader,
+        callbacks=callbacks,
+   )
 
     if dump_loader is not None:
         if opts.dump_output:
@@ -237,3 +249,9 @@ if __name__ == "__main__":
             trainer.save_checkpoint()
 
     core.close()
+    # TODO
+    return {}
+
+if __name__ == "__main__":
+    opts = get_params()
+    run_game(opts)

@@ -1,6 +1,8 @@
 import math
 import warnings
-from typing import Dict, Any, Callable, Optional, List
+import json
+import logging
+from typing import Dict, Any, Callable, Optional, List, Union, cast
 
 import torch
 from torch.utils.data import DataLoader
@@ -97,3 +99,49 @@ class ToposimCallback(Callback):
             )
         if logs is not None:
             logs["toposim"] = toposim
+
+class ConsoleLogger(Callback):
+
+    def __init__(self, print_train_loss=False, as_json=False, print_test_loss=True):
+        self.print_train_loss = print_train_loss
+        self.as_json = as_json
+        self.epoch_counter = 0
+        self.print_test_loss = print_test_loss
+
+    def on_test_end(self, loss: float, logs: Dict[str, Any] = None):
+        if logs is None:
+            logs = {}
+        if self.print_test_loss:
+            if self.as_json:
+                dump = dict(mode='test', epoch=self.epoch_counter, loss=self._get_metric(loss))
+                for k, v in logs.items():
+                    dump[k] = self._get_metric(v)
+                output_message = json.dumps(dump)
+            else:
+                output_message = f'test: epoch {self.epoch_counter}, loss {loss:.4f},  {logs}'
+            logging.info(output_message)
+
+    def on_epoch_end(self, loss: float, logs: Dict[str, Any] = None):
+        if logs is None:
+            logs = {}
+        self.epoch_counter += 1
+
+        if self.print_train_loss:
+            if self.as_json:
+                dump = dict(mode='train', epoch=self.epoch_counter, loss=self._get_metric(loss))
+                for k, v in logs.items():
+                    dump[k] = self._get_metric(v)
+                output_message = json.dumps(dump)
+            else:
+                output_message = f'train: epoch {self.epoch_counter}, loss {loss:.4f},  {logs}'
+            logging.info(output_message)
+
+    def _get_metric(self, metric: Union[torch.Tensor, float]) -> float:
+        if torch.is_tensor(metric) and cast(torch.Tensor, metric).dim() > 1:
+            return cast(torch.Tensor, metric).mean().item()
+        elif torch.is_tensor(metric):
+            return cast(torch.Tensor, metric).item()
+        elif type(metric) == float:
+            return metric
+        else:
+            raise TypeError('Metric must be either float or torch.Tensor')
