@@ -3,15 +3,18 @@ from argparse import Namespace
 from typing import Iterator
 
 import torch
+from joblib import Parallel, delayed
 
 from egg.zoo.visA import game
 
 logger = logging.getLogger()
 logger.setLevel(logging.WARNING)
 
+
 def copy(ns: Namespace) -> Namespace:
     """Peroform a shallow copy on the given namespace."""
     return Namespace(**vars(ns))
+
 
 default_opts = Namespace(
     batch_size=32,
@@ -58,20 +61,29 @@ default_opts = Namespace(
     vocab_size=10,
 )
 
+
 def opt_generator(base_opts: Namespace) -> Iterator[Namespace]:
     for i in range(1, 4):
         opts = copy(base_opts)
         opts.max_len = i
         yield opts
 
-def main():
+
+def main() -> None:
     # TODO When we run the game here, we are skipping the "important" intialization
     # of the EGG framework, but this involves editing global state which is horrible
     # for doing things programmatically. If something doesn't get initialized, this is
     # probably why.
-    for opts in opt_generator(default_opts):
+    def run_config(opts):
         output = game.run_game(opts)
-        print("objective: " + str(output['objective']))
+        print("objective: " + str(output["objective"]))
+        return output
+
+    n_jobs = 4
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(run_config)(opts) for opts in opt_generator(default_opts)
+    )
+    print(results)
 
 
 if __name__ == "__main__":

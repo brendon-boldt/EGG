@@ -179,13 +179,13 @@ def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
         validation_dataset,
         batch_size=opts.batch_size,
         shuffle=False,
-        num_workers=1
+        num_workers=0
     )
     train_loader = DataLoader(
         train_dataset,
         batch_size=opts.batch_size,
         shuffle=True,
-        num_workers=1
+        num_workers=0
     )
 
     dump_loader = None
