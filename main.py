@@ -1,5 +1,6 @@
 import logging
 from argparse import Namespace
+from typing import Iterator
 
 import torch
 
@@ -57,16 +58,20 @@ default_opts = Namespace(
     vocab_size=10,
 )
 
+def opt_generator(base_opts: Namespace) -> Iterator[Namespace]:
+    for i in range(1, 4):
+        opts = copy(base_opts)
+        opts.max_len = i
+        yield opts
+
 def main():
     # TODO When we run the game here, we are skipping the "important" intialization
     # of the EGG framework, but this involves editing global state which is horrible
     # for doing things programmatically. If something doesn't get initialized, this is
     # probably why.
-    for i in [1, 2, 3]:
-        opts = copy(default_opts)
-        opts.max_len = i
+    for opts in opt_generator(default_opts):
         output = game.run_game(opts)
-        print(output)
+        print("objective: " + str(output['objective']))
 
 
 if __name__ == "__main__":

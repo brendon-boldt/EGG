@@ -258,7 +258,14 @@ def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
 
     core.close()
     # TODO add examples per epoch and opts
-    return metric_logger.get_finalized_logs()
+    logs = metric_logger.get_finalized_logs()
+    return post_process_logs(logs, len(train_dataset))
+
+def post_process_logs(logs: Dict[str, Any], examples_per_epoch: int) -> Dict[str, Any]:
+    logs["examples_per_epoch"] = examples_per_epoch
+    logs["objective"] = logs["valid"]["acc"].max()
+    return logs
+
 
 if __name__ == "__main__":
     opts = get_params()
