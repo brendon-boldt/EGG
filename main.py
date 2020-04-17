@@ -1,6 +1,10 @@
 import logging
 from argparse import Namespace
 from typing import Iterator
+from pathlib import Path
+import pickle as pkl
+from datetime import datetime
+from typing import Dict, Any, Tuple
 
 import torch
 from joblib import Parallel, delayed
@@ -74,16 +78,21 @@ def main() -> None:
     # of the EGG framework, but this involves editing global state which is horrible
     # for doing things programmatically. If something doesn't get initialized, this is
     # probably why.
-    def run_config(opts):
+    def run_config(opts: Namespace) -> Tuple[Namespace, Dict[str, Any]]:
         output = game.run_game(opts)
         print("objective: " + str(output["objective"]))
-        return output
+        return opts, output
 
+    log_dir = Path("logs")
+    if not log_dir.exists():
+        log_dir.mkdir()
     n_jobs = 4
     results = Parallel(n_jobs=n_jobs)(
         delayed(run_config)(opts) for opts in opt_generator(default_opts)
     )
-    print(results)
+    timestamp = datetime.strftime(datetime.today(), "%Y-%m-%d_%H-%M-%S")
+    with (log_dir / timestamp).open("wb") as fo:
+        pkl.dump(results, fo)
 
 
 if __name__ == "__main__":
