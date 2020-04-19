@@ -14,10 +14,20 @@ from egg.zoo.visA import game
 logger = logging.getLogger()
 logger.setLevel(logging.WARNING)
 
+ConfigDiff = Dict[str, Tuple[Any, Any]]
+
 
 def copy(ns: Namespace) -> Namespace:
     """Peroform a shallow copy on the given namespace."""
     return Namespace(**vars(ns))
+
+
+def ns_diff(x: Namespace, y: Namespace) -> ConfigDiff:
+    diff = {}
+    for k, v in x._get_kwargs():
+        if getattr(y, k) != getattr(x, k):
+            diff[k] = (getattr(x, k), getattr(y, k))
+    return diff
 
 
 default_opts = Namespace(
@@ -65,12 +75,45 @@ default_opts = Namespace(
     vocab_size=10,
 )
 
+# (idx, log dir, opts, opts diff)
+RunArgs = Tuple[int, Path, Namespace, ConfigDiff]
 
-def opt_generator(base_opts: Namespace) -> Iterator[Namespace]:
-    for i in range(1, 4):
-        opts = copy(base_opts)
-        opts.max_len = i
-        yield opts
+
+def opt_generator(log_dir: Path, base_opts: Namespace) -> Iterator[RunArgs]:
+    counter = 0
+    for max_len in [1, 2, 4, 8]:
+        for vocab_size in [2, 4, 8, 16, 32]:
+            for n_distractors in [4, 9, 19]:
+                for train_mode in ["rf", "gs"]:
+                    opts = copy(base_opts)
+                    opts.max_len = max_len
+                    opts.n_distractors = n_distractors
+                    opts.vocab_size = vocab_size
+                    opts.train_mode = train_mode
+                    diff = ns_diff(base_opts, opts)
+                    yield (counter, log_dir, opts, diff)
+                    counter += 1
+
+
+def run_config(args: RunArgs) -> None:
+    idx, log_dir, opts, diff = args
+    output = game.run_game(opts)
+
+    max_acc_v_idx = output["valid"]["acc"].argmax()
+    sum_list = [
+        f"diff: {diff}",
+        f"objective: {output['objective']}",
+        f"max v acc: {output['valid']['acc'][max_acc_v_idx]}",
+        f"ts @ max v acc: {output['valid']['toposim'][max_acc_v_idx]}",
+        f"epoch @ max v acc: {max_acc_v_idx}",
+    ]
+    summary = "\n".join(f"{idx}: {item}" for item in sum_list)
+    print(summary)
+    print()
+    with (log_dir / "log.txt").open("a") as log_file:
+        log_file.write(summary + "\n")
+    with (log_dir / f"config_{idx}.pkl").open("wb") as pkl_file:
+        pkl.dump(output, pkl_file)
 
 
 def main() -> None:
@@ -78,21 +121,18 @@ def main() -> None:
     # of the EGG framework, but this involves editing global state which is horrible
     # for doing things programmatically. If something doesn't get initialized, this is
     # probably why.
-    def run_config(opts: Namespace) -> Tuple[Namespace, Dict[str, Any]]:
-        output = game.run_game(opts)
-        print("objective: " + str(output["objective"]))
-        return opts, output
 
     log_dir = Path("logs")
     if not log_dir.exists():
         log_dir.mkdir()
-    n_jobs = 4
-    results = Parallel(n_jobs=n_jobs)(
-        delayed(run_config)(opts) for opts in opt_generator(default_opts)
-    )
     timestamp = datetime.strftime(datetime.today(), "%Y-%m-%d_%H-%M-%S")
-    with (log_dir / timestamp).open("wb") as fo:
-        pkl.dump(results, fo)
+    log_dir /= timestamp
+    log_dir.mkdir()
+
+    n_jobs = 3
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(run_config)(opts) for opts in opt_generator(log_dir, default_opts)
+    )
 
 
 if __name__ == "__main__":
