@@ -7,17 +7,16 @@ from __future__ import print_function
 import sys
 import argparse
 import contextlib
-import warnings
 import math
 
 import torch.utils.data
 import torch.nn.functional as F
 import egg.core as core
 from torch.utils.data import DataLoader
-from scipy import stats
 
 from egg.zoo.visA.features import VisaDataset, InaDataset, GroupedInaDataset
 from egg.zoo.visA.archs import Sender, Receiver, ReinforceReceiver
+from egg.zoo.visA.callbacks import ToposimCallback
 
 
 def get_params():
@@ -35,8 +34,8 @@ def get_params():
     parser.add_argument('--dump_output', type=str, default=None,
                         help='Path for dumping output information')
 
-    parser.add_argument('--batches_per_epoch', type=int, default=10000,
-                        help='Number of batches per epoch (default: 1000)')
+    parser.add_argument('--examples_per_epoch', type=int, default=-1,
+                        help='Number of batches per epoch (default: size of training set)')
 
     parser.add_argument('--sender_hidden', type=int, default=20,
                         help='Size of the hidden layer of Sender (default: 10)')
@@ -77,6 +76,9 @@ def get_params():
                         help="boolean specify whether to print Train res (default: False)")
     parser.add_argument('--print_test', type=bool, default=True,
                         help="boolean specify whether to print Test res (default: True)")
+    parser.add_argument('--toposim_embed', type=bool, default=True,
+                        help=("If true, use cosine distance of embeddings of messages, "
+                              "otherwise use Levenshtein distance."))
 
     parser.add_argument('--n_classes', type=int, default=None,
                         help='Number of classes for Receiver to output. If not set, is automatically deduced from '
@@ -103,24 +105,6 @@ def dump(game, dataset, device, is_gs):
         if is_gs:
             receiver_output = receiver_output.argmax()
         print(f'{sender_input};{message};{receiver_output};{label.item()}')
-
-
-def topographical_similarity(inputs, messages):
-    def dist(x, y): return (x != y).sum(-1)
-    dists_x = [dist(x1, x2) for i, x1 in enumerate(inputs)
-               for x2 in inputs[i:]]
-    dists_y = [
-        dist(y1, y2)
-        for i, y1 in enumerate(messages.argmax(-1))
-        for y2 in messages[i:].argmax(-1)
-    ]
-    # spearmanr complains about dividing by a 0 stddev sometimes; just let it nan
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=RuntimeWarning)
-        corr = stats.spearmanr(dists_x, dists_y)[0]
-        if math.isnan(corr):
-            corr = 0
-        return corr
 
 
 def differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
@@ -186,13 +170,18 @@ if __name__ == "__main__":
         )
     else:
         if opts.data_set == 'visa':
-            whole_dataset = VisaDataset.from_xml_files(
+            whole_dataset = VisaDataset.from_file(
                 opts.data_path, opts.n_distractors)
         elif opts.data_set == 'ina':
-            whole_dataset = InaDataset.from_mat_file(
+            whole_dataset = InaDataset.from_file(
                 opts.data_path, opts.n_distractors)
         validation_dataset, train_dataset = whole_dataset.valid_train_split(
             opts.valid_prop)
+    if opts.examples_per_epoch > 0:
+        train_dataset.n_repeats = math.ceil(
+            opts.examples_per_epoch / len(train_dataset)
+        )
+    print(f"Examples per epoch: {len(train_dataset)}")
     validation_loader = DataLoader(
         validation_dataset,
         batch_size=opts.batch_size,
@@ -207,10 +196,10 @@ if __name__ == "__main__":
     )
 
     dump_loader = None
-    if opts.dump_data:
-        dump_loader = DataLoader(CSVDataset(path=opts.dump_data),
-                                 batch_size=opts.batch_size,
-                                 shuffle=False, num_workers=1)
+    # if opts.dump_data:
+    #     dump_loader = DataLoader(CSVDataset(path=opts.dump_data),
+    #                              batch_size=opts.batch_size,
+    #                              shuffle=False, num_workers=1)
 
     assert train_loader or dump_loader, 'Either training or dump data must be specified'
     sender, receiver, loss = build_model(opts, train_loader, dump_loader)
@@ -240,8 +229,14 @@ if __name__ == "__main__":
 
     optimizer = core.build_optimizer(game.parameters())
     # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
+    callbacks = [
+        ToposimCallback(validation_loader, train_loader, sender,
+                        use_embeddings=opts.toposim_embed),
+        core.ConsoleLogger(print_train_loss=opts.print_train,
+                           print_test_loss=opts.print_test),
+    ]
     trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
-                           validation_data=validation_loader, callbacks=[core.ConsoleLogger(print_train_loss=opts.print_train, print_test_loss=opts.print_test)])
+                           validation_data=validation_loader, callbacks=callbacks)
 
     if dump_loader is not None:
         if opts.dump_output:
