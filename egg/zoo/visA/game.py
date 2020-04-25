@@ -72,7 +72,11 @@ def get_params():
                         help="Selects whether GumbelSoftmax or Reinforce is used"
                              "(default: gs)")
     parser.add_argument('--toposim', type=bool, default=False,
-                        help="boolean for measureing topological similarity (default: gs)")
+                        help="boolean for measureing topological similarity (default: False)")
+    parser.add_argument('--print_train', type=bool, default=False,
+                        help="boolean specify whether to print Train res (default: False)")
+    parser.add_argument('--print_test', type=bool, default=True,
+                        help="boolean specify whether to print Test res (default: True)")
 
     parser.add_argument('--n_classes', type=int, default=None,
                         help='Number of classes for Receiver to output. If not set, is automatically deduced from '
@@ -232,7 +236,7 @@ if __name__ == "__main__":
     optimizer = core.build_optimizer(game.parameters())
     # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
     trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
-                           validation_data=validation_loader, callbacks=[core.ConsoleLogger(print_train_loss=False, print_test_loss=True)])
+                           validation_data=validation_loader, callbacks=[core.ConsoleLogger(print_train_loss=opts.print_train, print_test_loss=opts.print_test)])
 
     if dump_loader is not None:
         if opts.dump_output:
