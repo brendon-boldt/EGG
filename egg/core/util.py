@@ -105,7 +105,8 @@ def init(arg_parser:Optional[argparse.ArgumentParser] = None, params:Optional[Li
 
     optimizers = {'adam': torch.optim.Adam,
                  'sgd': torch.optim.SGD,
-                 'adagrad': torch.optim.Adagrad}
+                 'adagrad': torch.optim.Adagrad,
+                 'adamw': torch.optim.AdamW}
     if common_opts.optimizer in optimizers:
         optimizer = optimizers[common_opts.optimizer]
     else:
