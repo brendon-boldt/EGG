@@ -4,7 +4,7 @@ from typing import Iterator
 from pathlib import Path
 import pickle as pkl
 from datetime import datetime
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Set
 
 import torch
 from joblib import Parallel, delayed
@@ -13,6 +13,7 @@ from egg.zoo.visA import game
 
 logger = logging.getLogger()
 logger.setLevel(logging.WARNING)
+LOG_FILE = "log.txt"
 
 ConfigDiff = Dict[str, Tuple[Any, Any]]
 
@@ -78,6 +79,8 @@ default_opts = Namespace(
 # (idx, log dir, opts, opts diff)
 RunArgs = Tuple[int, Path, Namespace, ConfigDiff]
 
+should_skip: Set[int] = set({})
+
 
 def opt_generator(log_dir: Path, base_opts: Namespace) -> Iterator[RunArgs]:
     counter = 0
@@ -91,7 +94,10 @@ def opt_generator(log_dir: Path, base_opts: Namespace) -> Iterator[RunArgs]:
                     opts.vocab_size = vocab_size
                     opts.train_mode = train_mode
                     diff = ns_diff(base_opts, opts)
-                    yield (counter, log_dir, opts, diff)
+                    # If there are specific configs that shouldn't be run, they will be
+                    # skipped
+                    if counter not in should_skip:
+                        yield (counter, log_dir, opts, diff)
                     counter += 1
 
 
@@ -110,7 +116,7 @@ def run_config(args: RunArgs) -> None:
     summary = "\n".join(f"{idx}: {item}" for item in sum_list)
     print(summary)
     print()
-    with (log_dir / "log.txt").open("a") as log_file:
+    with (log_dir / LOG_FILE).open("a") as log_file:
         log_file.write(summary + "\n")
     with (log_dir / f"config_{idx}.pkl").open("wb") as pkl_file:
         pkl.dump(output, pkl_file)
@@ -128,9 +134,13 @@ def main() -> None:
     timestamp = datetime.strftime(datetime.today(), "%Y-%m-%d_%H-%M-%S")
     log_dir /= timestamp
     log_dir.mkdir()
+    with (log_dir / LOG_FILE).open("a") as logfile:
+        logfile.write(str(default_opts) + "\n")
+    with (log_dir / f"config_default.pkl").open("wb") as pkl_file:
+        pkl.dump(default_opts, pkl_file)
 
     n_jobs = 3
-    results = Parallel(n_jobs=n_jobs)(
+    results = Parallel(n_jobs=n_jobs, backend="loky")(
         delayed(run_config)(opts) for opts in opt_generator(log_dir, default_opts)
     )
 

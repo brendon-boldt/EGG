@@ -109,11 +109,19 @@ class MetricLogger(Callback):
         self._train_logs: List[Dict[str, Any]] = []
         self._valid_logs: List[Dict[str, Any]] = []
 
+    @staticmethod
+    def _detach_tensors(d: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            k: v.detach().numpy() if torch.is_tensor(v) else v for k, v in d.items()
+        }
+
     def on_test_end(self, loss: float, logs: Dict[str, Any]) -> None:
-        self._valid_logs.append({"loss": loss, **logs})
+        log_dict = MetricLogger._detach_tensors({"loss": loss, **logs})
+        self._valid_logs.append(log_dict)
 
     def on_epoch_end(self, loss: float, logs: Dict[str, Any]) -> None:
-        self._train_logs.append({"loss": loss, **logs})
+        log_dict = MetricLogger._detach_tensors({"loss": loss, **logs})
+        self._train_logs.append(log_dict)
 
     @staticmethod
     def _dicts_to_arrays(dict_list: List[Dict[str, Any]]) -> Dict[str, np.ndarray]:

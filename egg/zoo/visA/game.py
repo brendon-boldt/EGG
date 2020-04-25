@@ -148,6 +148,7 @@ optimizers = {'adam': torch.optim.Adam,
 
 def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
     logging.info(f'Launching game with parameters: {opts}')
+    logs: Dict[str, Any] = {"opts": opts}
 
     device = torch.device("cuda" if opts.cuda else "cpu")
 
@@ -208,10 +209,19 @@ def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
 
         game = core.SenderReceiverRnnReinforce(sender, receiver, differentiable_loss, sender_entropy_coeff=opts.sender_entropy_coeff,
                                                receiver_entropy_coeff=opts.receiver_entropy_coeff)
-    elif opts.train_mode.lower() == 'gs':
-        sender = core.RnnSenderGS(sender, opts.vocab_size, opts.sender_embedding, opts.sender_hidden,
-                                  cell=opts.sender_cell, max_len=opts.max_len, temperature=opts.temperature,
-                                  force_eos=opts.force_eos)
+    elif opts.train_mode.lower() == 'gs' or opts.train_mode.lower() == 'stgs':
+        straight_through = opts.train_mode.lower() == 'stgs'
+        sender = core.RnnSenderGS(
+            sender,
+            opts.vocab_size,
+            opts.sender_embedding,
+            opts.sender_hidden,
+            cell=opts.sender_cell,
+            max_len=opts.max_len,
+            temperature=opts.temperature,
+            force_eos=opts.force_eos,
+            straight_through=straight_through,
+        )
 
         receiver = core.RnnReceiverGS(receiver, opts.vocab_size, opts.receiver_embedding,
                                       opts.receiver_hidden, cell=opts.receiver_cell)
@@ -257,9 +267,10 @@ def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
             trainer.save_checkpoint()
 
     core.close()
-    # TODO add examples per epoch and opts
-    logs = metric_logger.get_finalized_logs()
-    return post_process_logs(logs, len(train_dataset))
+    # Just in case the opts object has been edited
+    logs["post_opts"] = opts
+    metric_logs = metric_logger.get_finalized_logs()
+    return post_process_logs({**metric_logs, **logs}, len(train_dataset))
 
 def post_process_logs(logs: Dict[str, Any], examples_per_epoch: int) -> Dict[str, Any]:
     logs["examples_per_epoch"] = examples_per_epoch
