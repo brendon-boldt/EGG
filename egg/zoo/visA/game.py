@@ -124,10 +124,15 @@ def topographical_similarity(inputs, messages):
 
 
 def differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
+    res_dict = {}
     labels = labels.squeeze(1)
     acc = (receiver_output.argmax(dim=1) == labels).detach().float()
+    res_dict['acc'] = acc
     loss = F.cross_entropy(receiver_output, labels, reduction="none")
-    return loss, {'acc': acc}
+    if opts.toposim:
+        toposim = topographical_similarity(_sender_input, _message)
+        res_dict['toposim'] = toposim
+    return loss, res_dict
 
 
 def non_differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
