@@ -1,6 +1,8 @@
 import math
 import warnings
-from typing import Dict, Any, Callable, Optional, List
+import json
+import logging
+from typing import Dict, Any, Callable, Optional, List, Union, cast
 
 import torch
 from torch.utils.data import DataLoader
@@ -46,6 +48,7 @@ class ToposimCallback(Callback):
     def __init__(
         self, valid_dl: DataLoader, train_dl: DataLoader, sender, use_embeddings=True
     ) -> None:
+        super(ToposimCallback, self).__init__()
         self.use_embeddings = use_embeddings
         self.valid_dl = valid_dl
         self.train_dl = train_dl
@@ -99,17 +102,103 @@ class ToposimCallback(Callback):
             logs["toposim"] = toposim
 
 
-class MinValLossCallback(Callback):
+class MetricLogger(Callback):
     def __init__(self) -> None:
-        self.val_loss_min = 10000.0
-        self.val_loss_min_epoch = 0
-        self.epoch_counter = 0
+        super(MetricLogger, self).__init__()
+        self._finalized_logs: Optional[Dict[str, Any]] = None
+        self._train_logs: List[Dict[str, Any]] = []
+        self._valid_logs: List[Dict[str, Any]] = []
 
-    def on_test_end(self, loss: float, logs: Dict[str, Any] = None) -> None:
-        if loss < self.val_loss_min:
-            self.val_loss_min = loss
-            self.val_loss_min_epoch = self.epoch_counter
+    @staticmethod
+    def _detach_tensors(d: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            k: v.detach().numpy() if torch.is_tensor(v) else v for k, v in d.items()
+        }
+
+    def on_test_end(self, loss: float, logs: Dict[str, Any]) -> None:
+        log_dict = MetricLogger._detach_tensors({"loss": loss, **logs})
+        self._valid_logs.append(log_dict)
+
+    def on_epoch_end(self, loss: float, logs: Dict[str, Any]) -> None:
+        log_dict = MetricLogger._detach_tensors({"loss": loss, **logs})
+        self._train_logs.append(log_dict)
+
+    @staticmethod
+    def _dicts_to_arrays(dict_list: List[Dict[str, Any]]) -> Dict[str, np.ndarray]:
+        train_lists: Dict[str, List] = {}
+        for d in dict_list:
+            for field, value in d.items():
+                if field not in train_lists:
+                    train_lists[field] = []
+                if torch.is_tensor(value):
+                    value = value.detach().numpy()
+                train_lists[field].append(value)
+        return {k: np.array(v) for k, v in train_lists.items()}
+
+    def on_train_end(self) -> None:
+        assert len(self._train_logs) > 0
+        assert len(self._valid_logs) > 0
+        train_logs = MetricLogger._dicts_to_arrays(self._train_logs)
+        valid_logs = MetricLogger._dicts_to_arrays(self._valid_logs)
+        # TODO Add other post-processing of metrics
+        self._finalized_logs = {"train": train_logs, "valid": valid_logs}
+
+    def get_finalized_logs(self) -> Dict[str, Any]:
+        if self._finalized_logs is None:
+            raise ValueError("Logs are not yet finalized.")
+        else:
+            return self._finalized_logs
+
+
+class ConsoleLogger(Callback):
+    def __init__(self, print_train_loss=False, as_json=False, print_test_loss=True):
+        self.print_train_loss = print_train_loss
+        self.as_json = as_json
+        self.epoch_counter = 0
+        self.print_test_loss = print_test_loss
+
+    def on_test_end(self, loss: float, logs: Dict[str, Any] = None):
+        if logs is None:
+            logs = {}
+        if self.print_test_loss:
+            if self.as_json:
+                dump = dict(
+                    mode="test", epoch=self.epoch_counter, loss=self._get_metric(loss)
+                )
+                for k, v in logs.items():
+                    dump[k] = self._get_metric(v)
+                output_message = json.dumps(dump)
+            else:
+                output_message = (
+                    f"test: epoch {self.epoch_counter}, loss {loss:.4f},  {logs}"
+                )
+            logging.info(output_message)
+
+    def on_epoch_end(self, loss: float, logs: Dict[str, Any] = None):
+        if logs is None:
+            logs = {}
         self.epoch_counter += 1
 
-    def on_train_end(self) -> float:
-        return self.val_loss_min
+        if self.print_train_loss:
+            if self.as_json:
+                dump = dict(
+                    mode="train", epoch=self.epoch_counter, loss=self._get_metric(loss)
+                )
+                for k, v in logs.items():
+                    dump[k] = self._get_metric(v)
+                output_message = json.dumps(dump)
+            else:
+                output_message = (
+                    f"train: epoch {self.epoch_counter}, loss {loss:.4f},  {logs}"
+                )
+            logging.info(output_message)
+
+    def _get_metric(self, metric: Union[torch.Tensor, float]) -> float:
+        if torch.is_tensor(metric) and cast(torch.Tensor, metric).dim() > 1:
+            return cast(torch.Tensor, metric).mean().item()
+        elif torch.is_tensor(metric):
+            return cast(torch.Tensor, metric).item()
+        elif type(metric) == float:
+            return metric
+        else:
+            raise TypeError("Metric must be either float or torch.Tensor")

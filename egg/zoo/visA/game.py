@@ -1,3 +1,4 @@
+# fmt: off
 # Copyright (c) Facebook, Inc. and its affiliates.
 
 # This source code is licensed under the MIT license found in the
@@ -8,16 +9,18 @@ import sys
 import argparse
 import contextlib
 import math
+import logging
+from typing import Dict, Any
 
 import torch.utils.data
 import torch.nn.functional as F
 import egg.core as core
 from torch.utils.data import DataLoader
-from hyperopt import hp, tpe, fmin, Trials
 
 from egg.zoo.visA.features import VisaDataset, InaDataset, GroupedInaDataset
 from egg.zoo.visA.archs import Sender, Receiver, ReinforceReceiver
-from egg.zoo.visA.callbacks import ToposimCallback, MinValLossCallback, calculate_toposim
+from egg.zoo.visA import callbacks
+from egg.zoo.visA.trainers import Trainer
 
 
 def get_params():
@@ -105,7 +108,7 @@ def dump(game, dataset, device, is_gs):
         message = ' '.join(map(str, message.tolist()))
         if is_gs:
             receiver_output = receiver_output.argmax()
-        print(f'{sender_input};{message};{receiver_output};{label.item()}')
+        logging.info(f'{sender_input};{message};{receiver_output};{label.item()}')
 
 
 def differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
@@ -148,8 +151,15 @@ def build_model(opts, train_loader, dump_loader):
 
     return sender, receiver, loss
 
+optimizers = {'adam': torch.optim.Adam,
+             'sgd': torch.optim.SGD,
+             'adagrad': torch.optim.Adagrad}
 
-def run_model(args):
+# fmt: on
+def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
+    logging.info(f"Launching game with parameters: {opts}")
+    logs: Dict[str, Any] = {"opts": opts}
+
     device = torch.device("cuda" if opts.cuda else "cpu")
 
     if opts.data_path is None:
@@ -157,103 +167,127 @@ def run_model(args):
         raise ValueError("--data_path must be supplied")
 
     # TODO And so can the limited options for the dataset
-    if opts.data_set == 'gina':
+    if opts.data_set == "gina":
         train_dataset, validation_dataset = GroupedInaDataset.from_file(
-            opts.data_path,
-            opts.n_distractors,
+            opts.data_path, opts.n_distractors
         )
     else:
-        if opts.data_set == 'visa':
-            whole_dataset = VisaDataset.from_file(
-                opts.data_path, opts.n_distractors)
-        elif opts.data_set == 'ina':
-            whole_dataset = InaDataset.from_file(
-                opts.data_path, opts.n_distractors)
+        if opts.data_set == "visa":
+            whole_dataset = VisaDataset.from_file(opts.data_path, opts.n_distractors)
+        elif opts.data_set == "ina":
+            whole_dataset = InaDataset.from_file(opts.data_path, opts.n_distractors)
         validation_dataset, train_dataset = whole_dataset.valid_train_split(
-            opts.valid_prop)
+            opts.valid_prop
+        )
     if opts.examples_per_epoch > 0:
         train_dataset.n_repeats = math.ceil(
             opts.examples_per_epoch / len(train_dataset)
         )
-    print(f"Examples per epoch: {len(train_dataset)}")
+    logging.info(f"Examples per epoch: {len(train_dataset)}")
     validation_loader = DataLoader(
-        validation_dataset,
-        batch_size=opts.batch_size,
-        shuffle=False,
-        num_workers=1
+        validation_dataset, batch_size=opts.batch_size, shuffle=False, num_workers=0
     )
     train_loader = DataLoader(
-        train_dataset,
-        batch_size=opts.batch_size,
-        shuffle=True,
-        num_workers=1
+        train_dataset, batch_size=opts.batch_size, shuffle=True, num_workers=0
     )
 
     dump_loader = None
 
-    assert train_loader or dump_loader, 'Either training or dump data must be specified'
+    assert train_loader or dump_loader, "Either training or dump data must be specified"
     sender, receiver, loss = build_model(opts, train_loader, dump_loader)
 
-    if opts.train_mode.lower() == 'rf':
-        sender = core.RnnSenderReinforce(sender,
-                                         opts.vocab_size, opts.sender_embedding, opts.sender_hidden,
-                                         cell=opts.sender_cell, max_len=opts.max_len, force_eos=opts.force_eos,
-                                         num_layers=opts.sender_layers)
-        receiver = core.RnnReceiverDeterministic(receiver, opts.vocab_size, opts.receiver_embedding,
-                                                 opts.receiver_hidden, cell=opts.receiver_cell,
-                                                 num_layers=opts.receiver_layers)
+    if opts.train_mode.lower() == "rf":
+        sender = core.RnnSenderReinforce(
+            sender,
+            opts.vocab_size,
+            opts.sender_embedding,
+            opts.sender_hidden,
+            cell=opts.sender_cell,
+            max_len=opts.max_len,
+            force_eos=opts.force_eos,
+            num_layers=opts.sender_layers,
+        )
+        receiver = core.RnnReceiverDeterministic(
+            receiver,
+            opts.vocab_size,
+            opts.receiver_embedding,
+            opts.receiver_hidden,
+            cell=opts.receiver_cell,
+            num_layers=opts.receiver_layers,
+        )
 
-        game = core.SenderReceiverRnnReinforce(sender, receiver, differentiable_loss, sender_entropy_coeff=opts.sender_entropy_coeff,
-                                               receiver_entropy_coeff=opts.receiver_entropy_coeff)
-    elif opts.train_mode.lower() == 'gs':
-        sender = core.RnnSenderGS(sender, opts.vocab_size, opts.sender_embedding, opts.sender_hidden,
-                                  cell=opts.sender_cell, max_len=opts.max_len, temperature=opts.temperature,
-                                  force_eos=opts.force_eos)
+        game = core.SenderReceiverRnnReinforce(
+            sender,
+            receiver,
+            differentiable_loss,
+            sender_entropy_coeff=opts.sender_entropy_coeff,
+            receiver_entropy_coeff=opts.receiver_entropy_coeff,
+        )
+    elif opts.train_mode.lower() == "gs" or opts.train_mode.lower() == "stgs":
+        straight_through = opts.train_mode.lower() == "stgs"
+        sender = core.RnnSenderGS(
+            sender,
+            opts.vocab_size,
+            opts.sender_embedding,
+            opts.sender_hidden,
+            cell=opts.sender_cell,
+            max_len=opts.max_len,
+            temperature=opts.temperature,
+            force_eos=opts.force_eos,
+            straight_through=straight_through,
+        )
 
-        receiver = core.RnnReceiverGS(receiver, opts.vocab_size, opts.receiver_embedding,
-                                      opts.receiver_hidden, cell=opts.receiver_cell)
+        receiver = core.RnnReceiverGS(
+            receiver,
+            opts.vocab_size,
+            opts.receiver_embedding,
+            opts.receiver_hidden,
+            cell=opts.receiver_cell,
+        )
 
         game = core.SenderReceiverRnnGS(sender, receiver, differentiable_loss)
     else:
-        raise NotImplementedError(f'Unknown training mode, {opts.mode}')
+        raise NotImplementedError(f"Unknown training mode, {opts.mode}")
 
-    optimizer = core.build_optimizer(game.parameters())
+    # optimizer = core.build_optimizer(game.parameters())
+    optimizer = optimizers[opts.optimizer](game.parameters(), lr=opts.lr)
+
     # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
-    callbacks = [
-        ToposimCallback(validation_loader, train_loader, sender,
-                        use_embeddings=opts.toposim_embed),
-        core.ConsoleLogger(print_train_loss=opts.print_train,
-                           print_test_loss=opts.print_test),
-        MinValLossCallback(),
+    metric_logger = callbacks.MetricLogger()
+    callback_list = [
+        callbacks.ToposimCallback(
+            validation_loader, train_loader, sender, use_embeddings=opts.toposim_embed
+        ),
+        callbacks.ConsoleLogger(print_train_loss=True, print_test_loss=True),
+        # It is important that this logger is last so it picks up any post-hoc metrics
+        metric_logger,
     ]
-    trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
-                           validation_data=validation_loader, callbacks=callbacks)
+    trainer = Trainer(
+        game=game,
+        opts=opts,
+        optimizer=optimizer,
+        train_data=train_loader,
+        validation_data=validation_loader,
+        callbacks=callback_list,
+    )
 
-    res = trainer.train(n_epochs=opts.n_epochs)
+    trainer.train(n_epochs=opts.n_epochs)
     if opts.checkpoint_dir:
         trainer.save_checkpoint()
-    res = [i for i in res if i != None][0]
 
-    return res
+    core.close()
+    # Just in case the opts object has been edited
+    logs["post_opts"] = opts
+    metric_logs = metric_logger.get_finalized_logs()
+    return post_process_logs({**metric_logs, **logs}, len(train_dataset))
+
+
+def post_process_logs(logs: Dict[str, Any], examples_per_epoch: int) -> Dict[str, Any]:
+    logs["examples_per_epoch"] = examples_per_epoch
+    logs["objective"] = -logs["valid"]["acc"].max()
+    return logs
 
 
 if __name__ == "__main__":
     opts = get_params()
-    search_space = {
-        'train_mode': hp.choice('train_mode', ['gs', 'rf']),
-        'max_lens': hp.uniform('max_lens', 1, 10),
-        'vocab': hp.uniform('vocab', 10, 200),
-        'lr': hp.uniform('lr', 0.00001, 0.0001),
-        'n_epochs': hp.uniform('n_epochs', 500, 1000),
-        'sender_hidden': hp.uniform('sender_hidden', 10, 100),
-        'receiver_hidden': hp.uniform('receiver_hidden', 10, 100),
-    }
-
-    print(f'Initial parameters: {opts}')
-    print(f'Bayesian optimization over: {search_space}')
-
-    hypopt_trials = Trials()
-    best_params = fmin(run_model, search_space, algo=tpe.suggest,
-                       max_evals=100, trials=hypopt_trials)
-    print(best_params)
-    core.close()
+    run_game(opts)
