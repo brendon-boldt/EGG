@@ -13,23 +13,15 @@ from egg.zoo.visA import game
 
 logger = logging.getLogger()
 logger.setLevel(logging.WARNING)
-LOG_FILE = "log.txt"
-
 ConfigDiff = Dict[str, Tuple[Any, Any]]
 
 
-def copy(ns: Namespace) -> Namespace:
-    """Peroform a shallow copy on the given namespace."""
-    return Namespace(**vars(ns))
+### General config ###
 
-
-def ns_diff(x: Namespace, y: Namespace) -> ConfigDiff:
-    diff = {}
-    for k, v in x._get_kwargs():
-        if getattr(y, k) != getattr(x, k):
-            diff[k] = (getattr(x, k), getattr(y, k))
-    return diff
-
+N_JOBS = 1
+LOG_FILE = "log.txt"
+# Config ids to skip
+should_skip: Set[int] = set({})
 
 default_opts = Namespace(
     batch_size=32,
@@ -139,8 +131,7 @@ def main() -> None:
     with (log_dir / f"config_default.pkl").open("wb") as pkl_file:
         pkl.dump(default_opts, pkl_file)
 
-    n_jobs = 3
-    results = Parallel(n_jobs=n_jobs, backend="loky")(
+    results = Parallel(n_jobs=N_JOBS, backend="loky")(
         delayed(run_config)(opts) for opts in opt_generator(log_dir, default_opts)
     )
 
