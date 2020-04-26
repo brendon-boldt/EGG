@@ -97,3 +97,19 @@ class ToposimCallback(Callback):
             )
         if logs is not None:
             logs["toposim"] = toposim
+
+
+class MinValLossCallback(Callback):
+    def __init__(self) -> None:
+        self.val_loss_min = 10000.0
+        self.val_loss_min_epoch = 0
+        self.epoch_counter = 0
+
+    def on_test_end(self, loss: float, logs: Dict[str, Any] = None) -> None:
+        if loss < self.val_loss_min:
+            self.val_loss_min = loss
+            self.val_loss_min_epoch = self.epoch_counter
+        self.epoch_counter += 1
+
+    def on_train_end(self) -> float:
+        return self.val_loss_min

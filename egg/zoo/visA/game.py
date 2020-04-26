@@ -13,10 +13,11 @@ import torch.utils.data
 import torch.nn.functional as F
 import egg.core as core
 from torch.utils.data import DataLoader
+from hyperopt import hp, tpe, fmin, Trials
 
 from egg.zoo.visA.features import VisaDataset, InaDataset, GroupedInaDataset
 from egg.zoo.visA.archs import Sender, Receiver, ReinforceReceiver
-from egg.zoo.visA.callbacks import ToposimCallback
+from egg.zoo.visA.callbacks import ToposimCallback, MinValLossCallback, calculate_toposim
 
 
 def get_params():
@@ -113,9 +114,6 @@ def differentiable_loss(_sender_input, _message, _receiver_input, receiver_outpu
     acc = (receiver_output.argmax(dim=1) == labels).detach().float()
     res_dict['acc'] = acc
     loss = F.cross_entropy(receiver_output, labels, reduction="none")
-    if opts.toposim:
-        toposim = topographical_similarity(_sender_input, _message)
-        res_dict['toposim'] = toposim
     return loss, res_dict
 
 
@@ -151,11 +149,7 @@ def build_model(opts, train_loader, dump_loader):
     return sender, receiver, loss
 
 
-if __name__ == "__main__":
-    opts = get_params()
-
-    print(f'Launching game with parameters: {opts}')
-
+def run_model(args):
     device = torch.device("cuda" if opts.cuda else "cpu")
 
     if opts.data_path is None:
@@ -196,10 +190,6 @@ if __name__ == "__main__":
     )
 
     dump_loader = None
-    # if opts.dump_data:
-    #     dump_loader = DataLoader(CSVDataset(path=opts.dump_data),
-    #                              batch_size=opts.batch_size,
-    #                              shuffle=False, num_workers=1)
 
     assert train_loader or dump_loader, 'Either training or dump data must be specified'
     sender, receiver, loss = build_model(opts, train_loader, dump_loader)
@@ -234,19 +224,36 @@ if __name__ == "__main__":
                         use_embeddings=opts.toposim_embed),
         core.ConsoleLogger(print_train_loss=opts.print_train,
                            print_test_loss=opts.print_test),
+        MinValLossCallback(),
     ]
     trainer = core.Trainer(game=game, optimizer=optimizer, train_data=train_loader,
                            validation_data=validation_loader, callbacks=callbacks)
 
-    if dump_loader is not None:
-        if opts.dump_output:
-            with open(opts.dump_output, 'w') as f, contextlib.redirect_stdout(f):
-                dump(game, dump_loader, device, opts.train_mode.lower() == 'gs')
-        else:
-            dump(game, dump_loader, device, opts.train_mode.lower() == 'gs')
-    else:
-        trainer.train(n_epochs=opts.n_epochs)
-        if opts.checkpoint_dir:
-            trainer.save_checkpoint()
+    res = trainer.train(n_epochs=opts.n_epochs)
+    if opts.checkpoint_dir:
+        trainer.save_checkpoint()
+    res = [i for i in res if i != None][0]
 
+    return res
+
+
+if __name__ == "__main__":
+    opts = get_params()
+    search_space = {
+        'train_mode': hp.choice('train_mode', ['gs', 'rf']),
+        'max_lens': hp.uniform('max_lens', 1, 10),
+        'vocab': hp.uniform('vocab', 10, 200),
+        'lr': hp.uniform('lr', 0.00001, 0.0001),
+        'n_epochs': hp.uniform('n_epochs', 500, 1000),
+        'sender_hidden': hp.uniform('sender_hidden', 10, 100),
+        'receiver_hidden': hp.uniform('receiver_hidden', 10, 100),
+    }
+
+    print(f'Initial parameters: {opts}')
+    print(f'Bayesian optimization over: {search_space}')
+
+    hypopt_trials = Trials()
+    best_params = fmin(run_model, search_space, algo=tpe.suggest,
+                       max_evals=100, trials=hypopt_trials)
+    print(best_params)
     core.close()
