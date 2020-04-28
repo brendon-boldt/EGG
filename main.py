@@ -120,6 +120,8 @@ def opt_generator(log_dir: Path, base_opts: Namespace) -> Iterator[RunArgs]:
 
 
 def run_config(args: RunArgs) -> Dict[str, Any]:
+    torch.set_num_threads(1)
+
     idx, log_dir, opts, diff = args
     output = game.run_game(opts)
 
