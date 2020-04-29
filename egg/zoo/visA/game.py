@@ -10,7 +10,7 @@ import argparse
 import contextlib
 import math
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Callable
 
 import torch.utils.data
 import torch.nn.functional as F
@@ -18,7 +18,7 @@ import egg.core as core
 from torch.utils.data import DataLoader
 
 from egg.zoo.visA.features import VisaDataset, InaDataset, GroupedInaDataset
-from egg.zoo.visA.archs import Sender, Receiver, ReinforceReceiver
+from egg.zoo.visA import archs
 from egg.zoo.visA import callbacks
 from egg.zoo.visA.trainers import Trainer
 
@@ -109,24 +109,55 @@ def dump(game, dataset, device, is_gs):
         if is_gs:
             receiver_output = receiver_output.argmax()
         logging.info(f'{sender_input};{message};{receiver_output};{label.item()}')
+# fmt: on
 
 
-def differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
+def dirichlet_process_prior(alpha=2.0, lambda_0=1e-4) -> Callable[..., torch.Tensor]:
+    def f(kwargs: Dict[str, Any]) -> torch.Tensor:
+        # During eval
+        # TODO properly handle eval vs. train
+        if kwargs["vocab_counts"] is None:
+            return torch.zeros(1)
+        new_v_counts = kwargs["message"].sum(0)
+        kwargs["vocab_counts"] += kwargs["message"].sum(0).detach()
+        vocab_loss = (
+            -new_v_counts
+            * (new_v_counts / (alpha - 1 + kwargs["vocab_counts"].sum())).log()
+        )
+        return lambda_0 * vocab_loss.sum()
+
+    return f
+
+
+def ema_dirichlet_process_prior(
+    alpha=2.0, lambda_0=1e-4, gamma=0.9
+) -> Callable[..., torch.Tensor]:
+    def f(kwargs: Dict[str, Any]) -> torch.Tensor:
+        raise NotImplementedError()
+        gamma = 0.9
+        # v_counts = gamma * v_counts +  (1 - gamma) * _message.sum(0).detach()
+
+    return f
+
+
+def differentiable_loss(kwargs: Dict[str, Any]) -> torch.Tensor:
+    # _sender_input, _message, _receiver_input, receiver_output, labels
     res_dict = {}
-    labels = labels.squeeze(1)
-    acc = (receiver_output.argmax(dim=1) == labels).detach().float()
-    res_dict['acc'] = acc
-    loss = F.cross_entropy(receiver_output, labels, reduction="none")
+    labels = kwargs["labels"].squeeze(1)
+    acc = (kwargs["receiver_output"].argmax(dim=1) == labels).detach().float()
+    res_dict["acc"] = acc
+    loss = F.cross_entropy(kwargs["receiver_output"], labels, reduction="none")
     return loss, res_dict
 
 
+# fmt: off
 def non_differentiable_loss(_sender_input, _message, _receiver_input, receiver_output, labels):
     labels = labels.squeeze(1)
     acc = (receiver_output == labels).detach().float()
     return -acc, {'acc': acc}
 
 
-def build_model(opts, train_loader, dump_loader):
+def build_model(opts, train_loader, dump_loader) -> Any:
     n_features = train_loader.dataset.get_n_features(
     ) if train_loader else dump_loader.dataset.get_n_features()
 
@@ -136,9 +167,9 @@ def build_model(opts, train_loader, dump_loader):
         receiver_outputs = train_loader.dataset.get_output_max() + 1 if train_loader else \
             dump_loader.dataset.get_output_max() + 1
 
-    sender = Sender(n_hidden=opts.sender_hidden, n_features=n_features)
+    sender = archs.Sender(n_hidden=opts.sender_hidden, n_features=n_features)
 
-    receiver = Receiver(n_data=n_features,
+    receiver = archs.Receiver(n_data=n_features,
                         n_hidden=opts.receiver_hidden)
     loss = differentiable_loss
     # TODO: implement non_differentiable_loss for rf?
@@ -245,7 +276,24 @@ def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
             cell=opts.receiver_cell,
         )
 
-        game = core.SenderReceiverRnnGS(sender, receiver, differentiable_loss)
+        losses = [differentiable_loss]
+        if opts.vocab_prior == "dp":
+            losses.append(
+                dirichlet_process_prior(alpha=opts.dp_alpha, lambda_0=opts.dp_lambda_0)
+            )
+        elif opts.vocab_prior == "ema_dp":
+            losses.append(
+                ema_dirichlet_process_prior(
+                    alpha=opts.dp_alpha, lambda_0=opts.dp_lambda_0, gamma=opts.dp_gamma
+                )
+            )
+        game = archs.SenderReceiverRnnGS(
+            sender,
+            receiver,
+            losses,
+            vocab_prior=opts.vocab_prior,
+            vocab_size=opts.vocab_size,
+        )
     else:
         raise NotImplementedError(f"Unknown training mode, {opts.mode}")
 
@@ -255,6 +303,7 @@ def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
     # early_stopper = core.EarlyStopperAccuracy(threshold=opts.early_stopping_thr, field_name="acc", validation=True)
     metric_logger = callbacks.MetricLogger()
     callback_list = [
+        callbacks.VocabCountsReset(game),
         callbacks.ToposimCallback(
             validation_loader, train_loader, sender, use_embeddings=opts.toposim_embed
         ),

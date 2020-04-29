@@ -22,7 +22,7 @@ LOG_FILE = "log.txt"
 # Config ids to skip
 should_skip: Set[int] = set({})
 # bayes_opt or grid_search
-TASK = "bayes_opt"
+TASK = "grid_search"
 logger.setLevel(logging.WARNING)
 
 DEFAULT_OPTS = Namespace(
@@ -33,6 +33,9 @@ DEFAULT_OPTS = Namespace(
     data_path="data/visa/US",
     data_set="visa",
     device=torch.device(type="cpu"),
+    dp_alpha=2.0,
+    dp_gamma=0.9,
+    dp_lambda_0=1e-4,
     dump_data=None,
     dump_output=None,
     early_stopping_thr=0.98,
@@ -43,7 +46,7 @@ DEFAULT_OPTS = Namespace(
     max_len=5,
     n_classes=None,
     n_distractors=9,
-    n_epochs=4,
+    n_epochs=20,
     no_cuda=True,
     optimizer="adam",
     preemptable=False,
@@ -67,7 +70,8 @@ DEFAULT_OPTS = Namespace(
     train_mode="gs",
     valid_prop=0.2,
     validation_freq=1,
-    vocab_size=10,
+    vocab_size=20,
+    vocab_prior=None,
 )
 
 MAX_EVALS = 100
@@ -102,21 +106,17 @@ def ns_diff(x: Namespace, y: Namespace) -> ConfigDiff:
 
 def opt_generator(log_dir: Path, base_opts: Namespace) -> Iterator[RunArgs]:
     counter = 0
-    for max_len in [1, 2, 4, 8]:
-        for vocab_size in [2, 4, 8, 16, 32]:
-            for n_distractors in [4, 9, 19]:
-                for train_mode in ["rf", "gs"]:
-                    opts = copy(base_opts)
-                    opts.max_len = max_len
-                    opts.n_distractors = n_distractors
-                    opts.vocab_size = vocab_size
-                    opts.train_mode = train_mode
-                    diff = ns_diff(base_opts, opts)
-                    # If there are specific configs that shouldn't be run, they will be
-                    # skipped
-                    if counter not in should_skip:
-                        yield (counter, log_dir, opts, diff)
-                    counter += 1
+    for _ in range(3):
+        # for train_mode in ["gs", "rf"]:
+        for vocab_prior in ['dp']:
+            opts = copy(base_opts)
+            opts.vocab_prior = vocab_prior
+            diff = ns_diff(base_opts, opts)
+            # If there are specific configs that shouldn't be run, they will be
+            # skipped
+            if counter not in should_skip:
+                yield (counter, log_dir, opts, diff)
+            counter += 1
 
 
 def run_config(args: RunArgs) -> Dict[str, Any]:
@@ -140,6 +140,15 @@ def run_config(args: RunArgs) -> Dict[str, Any]:
         log_file.write(summary + "\n")
     with (log_dir / f"config_{idx}.pkl").open("wb") as pkl_file:
         pkl.dump(output, pkl_file)
+
+    from matplotlib import pyplot as plt
+    vfreqs = output['valid']['word_freqs']
+    tfreqs = output['train']['word_freqs']
+    plt.plot(tfreqs[-1])
+    plt.plot(vfreqs[-1])
+    plt.plot([vfreqs[-1][0]/(x+1) for x in range(len(tfreqs[-1]))])
+    plt.show()
+    plt.clf()
     return output
 
 

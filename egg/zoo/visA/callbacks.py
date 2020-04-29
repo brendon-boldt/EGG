@@ -83,22 +83,26 @@ class ToposimCallback(Callback):
                     messages.append(output.argmax(-1))
         dataloader.dataset.n_repeats = n_repeats
         self.sender.train(sender_mode)
+        messages_tensor = torch.cat(messages, 0)
+
+        counts = np.unique(messages_tensor, return_counts=True)[1]
+        counts = np.array(sorted(counts, key=lambda x: -x), dtype=np.float32)
+        word_freqs = counts / counts.sum()
+
         if self.use_embeddings:
             embeddings = self.sender.embedding.weight.transpose(0, 1).detach()
             toposim = calculate_toposim(
                 torch.cat(inputs, 0),
-                embeddings[torch.cat(messages, 0)],
+                embeddings[messages_tensor],
                 cosine_dist,
                 lambda x: cosine_dist(x, reduce_dims=(-2, -1)),
             )
         else:
             toposim = calculate_toposim(
-                torch.cat(inputs, 0),
-                torch.cat(messages, 0).argmax(-1),
-                cosine_dist,
-                levenshtein_dist,
+                torch.cat(inputs, 0), messages_tensor, cosine_dist, levenshtein_dist
             )
         if logs is not None:
+            logs["word_freqs"] = word_freqs
             logs["toposim"] = toposim
 
 
@@ -202,3 +206,12 @@ class ConsoleLogger(Callback):
             return metric
         else:
             raise TypeError("Metric must be either float or torch.Tensor")
+
+
+class VocabCountsReset(Callback):
+    def __init__(self, model):
+        self.model = model
+
+    def on_epoch_begin(self):
+        if hasattr(self.model, "reset_counts"):
+            self.model.reset_counts()
