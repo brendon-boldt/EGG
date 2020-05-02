@@ -45,6 +45,7 @@ DEFAULT_OPTS = Namespace(
     n_distractors=9,
     n_epochs=4,
     no_cuda=True,
+    objective="ts",
     optimizer="adam",
     preemptable=False,
     random_seed=0,

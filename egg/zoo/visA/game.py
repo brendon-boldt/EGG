@@ -279,12 +279,20 @@ def run_game(opts: argparse.Namespace) -> Dict[str, Any]:
     # Just in case the opts object has been edited
     logs["post_opts"] = opts
     metric_logs = metric_logger.get_finalized_logs()
-    return post_process_logs({**metric_logs, **logs}, len(train_dataset))
+    return post_process_logs({**metric_logs, **logs}, len(train_dataset), opts.objective)
 
 
-def post_process_logs(logs: Dict[str, Any], examples_per_epoch: int) -> Dict[str, Any]:
+def post_process_logs(logs: Dict[str, Any], examples_per_epoch: int, objective: str) -> Dict[str, Any]:
     logs["examples_per_epoch"] = examples_per_epoch
+    if objective == "loss":
+        logs["objective"] = logs["valid"]["loss"].max()
+    elif objective == "acc":
     logs["objective"] = -logs["valid"]["acc"].max()
+    elif objective == "ts":
+        logs["objective"] = -logs["valid"]["toposim"].max()
+    else:
+        raise ValueError(f"loss({objective}) not supported")
+
     return logs
 
 
