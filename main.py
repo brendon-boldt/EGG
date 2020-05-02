@@ -80,6 +80,8 @@ SEARCH_SPACE = {
     "sender_hidden": hp.uniformint("sender_hidden", 10, 100),
     "receiver_hidden": hp.uniformint("receiver_hidden", 10, 100),
 }
+OPTIMAL_PARAMS = {'lr': 6.45998347679236e-05, 'max_lens': 5, 'receiver_hidden': 66,
+                  'sender_hidden': 48, 'train_mode': "gs", 'vocab': 37}   # acc
 
 
 ### End Config ###
@@ -191,6 +193,20 @@ def main() -> None:
             trials=hypopt_trials,
         )
         print(best_params)
+    elif TASK == "run":
+        counter = 0
+
+        def run_wrapper(changed_opts: Dict[str, Any]) -> float:
+            new_opts = copy(DEFAULT_OPTS)
+            for k, v in changed_opts.items():
+                setattr(new_opts, k, v)
+            diff = ns_diff(DEFAULT_OPTS, new_opts)
+            nonlocal counter
+            output = run_config((counter, log_dir, new_opts, diff))
+            counter += 1
+            return output["objective"]
+
+        output = run_wrapper(OPTIMAL_PARAMS)
     else:
         raise ValueError(f"Unknown task: {TASK}")
 
