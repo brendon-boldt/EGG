@@ -133,7 +133,7 @@ def _populate_cl_params(arg_parser: argparse.ArgumentParser) -> argparse.Argumen
 def _get_params(
     arg_parser: argparse.ArgumentParser, params: List[str]
 ) -> argparse.Namespace:
-    args = arg_parser.parse_args(params)
+    args = arg_parser.parse_known_args(params)[0]
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     # just to avoid confusion and be consistent
     args.no_cuda = not args.cuda
