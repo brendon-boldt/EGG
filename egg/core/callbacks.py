@@ -13,7 +13,6 @@ from collections import OrderedDict
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Union
 
 import torch
-import wandb
 from rich.columns import Columns
 from rich.console import RenderableType
 from rich.progress import (
@@ -114,47 +113,6 @@ class TensorboardLogger(Callback):
 
     def on_train_end(self):
         self.writer.close()
-
-
-class WandbLogger(Callback):
-    def __init__(
-        self,
-        opts: Union[argparse.ArgumentParser, Dict, str, None] = None,
-        project: Optional[str] = None,
-        run_id: Optional[str] = None,
-        **kwargs,
-    ):
-        # This callback logs to wandb the interaction as they are stored in the leader process.
-        # When interactions are not aggregated in a multigpu run, each process will store
-        # its own Interaction object in logs. For now, we leave to the user handling this case by
-        # subclassing WandbLogger and implementing a custom logic since we do not know a priori
-        # what type of data are to be logged.
-        self.opts = opts
-
-        wandb.init(project=project, id=run_id, **kwargs)
-        wandb.config.update(opts)
-
-    @staticmethod
-    def log_to_wandb(metrics: Dict[str, Any], commit: bool = False, **kwargs):
-        wandb.log(metrics, commit=commit, **kwargs)
-
-    def on_train_begin(self, trainer_instance: "Trainer"):  # noqa: F821
-        self.trainer = trainer_instance
-        wandb.watch(self.trainer.game, log="all")
-
-    def on_batch_end(
-        self, logs: Interaction, loss: float, batch_id: int, is_training: bool = True
-    ):
-        if is_training and self.trainer.distributed_context.is_leader:
-            self.log_to_wandb({"batch_loss": loss}, commit=True)
-
-    def on_epoch_end(self, loss: float, logs: Interaction, epoch: int):
-        if self.trainer.distributed_context.is_leader:
-            self.log_to_wandb({"train_loss": loss, "epoch": epoch}, commit=True)
-
-    def on_validation_end(self, loss: float, logs: Interaction, epoch: int):
-        if self.trainer.distributed_context.is_leader:
-            self.log_to_wandb({"validation_loss": loss, "epoch": epoch}, commit=True)
 
 
 class TemperatureUpdater(Callback):
