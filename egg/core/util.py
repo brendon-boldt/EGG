@@ -186,10 +186,10 @@ def init(
         "sgd": torch.optim.SGD,
         "adagrad": torch.optim.Adagrad,
     }
-    if common_opts.optimizer in optimizers:
-        optimizer = optimizers[common_opts.optimizer]
-    else:
-        raise NotImplementedError(f"Unknown optimizer name {common_opts.optimizer}!")
+    # if common_opts.optimizer in optimizers:
+    #     optimizer = optimizers[common_opts.optimizer]
+    # else:
+    #     raise NotImplementedError(f"Unknown optimizer name {common_opts.optimizer}!")
 
     if summary_writer is None and common_opts.tensorboard:
         try:
