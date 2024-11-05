@@ -30,7 +30,7 @@ from .interaction import Interaction
 from .util import get_opts, move_to
 
 try:
-    from torch.cuda.amp import GradScaler, autocast
+    from torch.amp import GradScaler, autocast
 except ImportError:
     pass
 
@@ -211,7 +211,7 @@ class Trainer:
                 batch = Batch(*batch)
             batch = batch.to(self.device)
 
-            context = autocast() if self.scaler else nullcontext()
+            context = autocast(self.device.type) if self.scaler else nullcontext()
             with context:
                 optimized_loss, interaction = self.game(*batch)
 
