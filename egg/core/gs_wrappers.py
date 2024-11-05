@@ -27,7 +27,8 @@ def gumbel_softmax_sample(
         one_hot = one_hot.view(*size)
         return one_hot
 
-    sample = RelaxedOneHotCategorical(logits=logits, temperature=temperature).rsample()
+    normed_logits = logits / logits.sum(-1, keepdim=True)
+    sample = RelaxedOneHotCategorical(logits=normed_logits, temperature=temperature).rsample()
 
     if straight_through:
         size = sample.size()
