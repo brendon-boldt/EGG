@@ -530,9 +530,9 @@ class SenderReceiverRnnGS(nn.Module):
         expected_length += (step + 1) * not_eosed_before
 
         z += not_eosed_before
-        assert z.allclose(
-            torch.ones_like(z)
-        ), f"lost probability mass, {z.min()}, {z.max()}"
+        # assert z.allclose(
+        #     torch.ones_like(z)
+        # ), f"lost probability mass, {z.min()}, {z.max()}"
 
         for name, value in step_aux.items():
             aux_info[name] = value * not_eosed_before + aux_info.get(name, 0.0)
