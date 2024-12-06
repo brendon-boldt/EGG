@@ -27,6 +27,8 @@ def gumbel_softmax_sample(
         one_hot = one_hot.view(*size)
         return one_hot
 
+    # Lower precision floats can fail to normalize properly.
+    logits = logits.to(torch.float32)
     sample = RelaxedOneHotCategorical(logits=logits, temperature=temperature).rsample()
 
     if straight_through:
