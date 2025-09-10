@@ -7,7 +7,6 @@ import json
 from collections import defaultdict
 from typing import Callable, Union
 
-import editdistance
 import numpy as np
 import torch
 from scipy.spatial import distance
@@ -170,6 +169,7 @@ class TopographicSimilarity(Callback):
         meaning_distance_fn: Union[str, Callable] = "hamming",
         message_distance_fn: Union[str, Callable] = "edit",
     ) -> float:
+        import editdistance
 
         distances = {
             "edit": lambda x, y: editdistance.eval(x, y) / ((len(x) + len(y)) / 2),
